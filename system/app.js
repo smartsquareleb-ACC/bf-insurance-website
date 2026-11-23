@@ -97,7 +97,7 @@ function message(p, l) {
       "حبّينا نذكّرك إنّو " + what + " " + when + ".\n\n" +
       priceLine + pay +
       (towing ? "🚗 ومعك البلاطة إذا صار حادث أو تعطّلت السيارة\n" : "") + "\n" +
-      "ردّ علينا هون ومنجدّدلك ياه بدقايق، بلا ما تتحرّك من مطرحك ✅\n\n" +
+      "إذا بتحب نجدّدلك، أكّدلنا please 🙏\n\n" +
       "BF Insurance · تأمينك عَ أصولو";
   }
   const when = n < 0 ? "expired on " + fmtDate(p.expiry) : n === 0 ? "expires today, " + fmtDate(p.expiry) : n === 1 ? "expires tomorrow, " + fmtDate(p.expiry) : "expires on " + fmtDate(p.expiry) + " (in " + n + " days)";
@@ -109,10 +109,10 @@ function message(p, l) {
     "Let us know if they'd like to renew and we'll handle it right away ✅";
   return "Hello " + t.name + " 👋\n" +
     "This is BF Insurance 🛡️\n\n" +
-    "A friendly reminder that your " + what + " " + when + ".\n\n" +
+    "Your " + what + " " + when + ".\n\n" +
     priceLine + "💳 Pay by cash, Whish or OMT\n" +
     (towing ? "🚗 Towing included for accidents and breakdowns\n" : "") + "\n" +
-    "Just reply here and we'll renew it for you in minutes, no need to go anywhere ✅\n\n" +
+    "If you'd like us to renew it, please confirm 🙏\n\n" +
     "BF Insurance · Protection, done properly";
 }
 
