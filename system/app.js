@@ -36,8 +36,8 @@ function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = fals
 
 /* ---------- state ---------- */
 let policies = [], subs = [], loaded = { policies: false, subbrokers: false }, loadError = "", user = null;
-let tab = ["overview", "reminders", "policies", "subbrokers"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
-let monthOffset = 0, q = "", fLine = "", fStatus = "", currentDetail = null, confirmDel = false;
+let tab = ["overview", "reminders", "policies", "clients", "subbrokers"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
+let cq = "", monthOffset = 0, q = "", fLine = "", fStatus = "", currentDetail = null, confirmDel = false;
 let lang = {}; try { lang = JSON.parse(localStorage.getItem("bf_lang") || "{}") || {}; } catch (e) {}
 const subOf = id => subs.find(s => s.id === id);
 const byId = id => policies.find(p => p.id === id);
@@ -61,23 +61,59 @@ function reminderStage(p) {
 }
 const target = p => { if (p.viaSub) { const s = subOf(p.subId); return { name: s ? s.name : "sub-broker", phone: s ? s.phone : "", sub: true }; } return { name: p.firstName || fullName(p), phone: p.phone, sub: false }; };
 
-function message(p, l) {
-  const L = lineOf(p.line), t = target(p), n = Math.max(0, daysUntil(p.expiry));
-  const plate = isMotor(p) && p.plate ? p.plate : "";
-  if (l === "ar") {
-    if (t.sub) return "مرحبا " + t.name + "، تذكير من BF Insurance للتأمين.\n" +
-      L.ar + " للزبون " + fullName(p) + (p.policyNo ? " (رقم " + p.policyNo + ")" : "") + (plate ? " للسيارة " + plate : "") +
-      " بتخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + n + " يوم).\nبدّك نجدّدها؟";
-    return "مرحبا " + t.name + "، معك BF Insurance للتأمين.\n" +
-      L.ar + (p.policyNo ? " رقم " + p.policyNo : "") + (plate ? " للسيارة " + plate : "") +
-      " بتخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + n + " يوم).\nبتحب نجدّدلك ياها؟ ردّ علينا هون ومنخلّصلك ياها.";
+// Renewal price shown in the reminder: today's portal price when the line has a fixed price, else last price.
+function renewPrice(p) {
+  const sg = suggest(p.line, p.details || {});
+  const v = sg && sg.price ? sg.price : num(p.price);
+  return v > 0 ? v : 0;
+}
+function lineName(p, l) {
+  const L = lineOf(p.line), d = p.details || {}, ar = l === "ar";
+  if (p.line === "motor_tpl") {
+    if (d.cover === "Elzeme only") return ar ? "التأمين الإلزامي" : "compulsory insurance (Elzeme)";
+    if (d.cover === "Dod l gheir only") return ar ? "تأمين ضد الغير" : "third-party insurance (Dod l gheir)";
+    return ar ? "التأمين الإلزامي وضد الغير" : "Elzeme + Dod l gheir insurance";
   }
-  if (t.sub) return "Hello " + t.name + ", a reminder from BF Insurance.\n" +
-    "Your client " + fullName(p) + "'s " + L.en + " policy" + (p.policyNo ? " no. " + p.policyNo : "") + (plate ? " (plate " + plate + ")" : "") +
-    " expires on " + fmtDate(p.expiry) + " (" + n + " days left).\nShall we renew it?";
-  return "Hello " + t.name + ", this is BF Insurance.\n" +
-    "Your " + L.en + " policy" + (p.policyNo ? " no. " + p.policyNo : "") + (plate ? " for plate " + plate : "") +
-    " expires on " + fmtDate(p.expiry) + " (" + n + " days left).\nWould you like us to renew it? Just reply here and we'll take care of it.";
+  if (p.line === "worker") return (ar ? "تأمين العاملة" : "domestic worker insurance") + (d.workerName ? (ar ? " " : " for ") + d.workerName : "");
+  if (p.line === "other" && d.what) return d.what;
+  return ar ? L.ar : L.en + " insurance";
+}
+function message(p, l) {
+  const t = target(p), n = daysUntil(p.expiry), ar = l === "ar";
+  const plate = isMotor(p) && p.plate ? p.plate : "";
+  const price = renewPrice(p), towing = p.line === "motor_tpl" && (p.details || {}).cover !== "Elzeme only";
+  const what = lineName(p, l) + (plate ? (ar ? " للسيارة رقم " : " for plate ") + plate : "");
+  if (ar) {
+    const when = n < 0 ? "خلص بتاريخ " + fmtDate(p.expiry) : n === 0 ? "بيخلص اليوم " + fmtDate(p.expiry) : n === 1 ? "بيخلص بكرا " + fmtDate(p.expiry) : "بيخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + (n === 2 ? "يومين" : n + " يوم") + ")";
+    const priceLine = price ? "💵 سعر التجديد: $" + price + "\n" : "";
+    const pay = "💳 الدفع كاش، Whish أو OMT\n";
+    if (t.sub) return "مرحبا " + t.name + " 👋\n" +
+      "تذكير من BF Insurance 🛡️\n\n" +
+      "الزبون " + fullName(p) + ": " + what + " " + when + ".\n" +
+      (p.policyNo ? "📄 رقم البوليصة: " + p.policyNo + "\n" : "") + priceLine + "\n" +
+      "خبّرنا إذا بدّو يجدّد ومنخلّصها فورًا ✅";
+    return "مرحبا " + t.name + " 👋\n" +
+      "معك BF Insurance 🛡️\n\n" +
+      "حبّينا نذكّرك إنّو " + what + " " + when + ".\n\n" +
+      priceLine + pay +
+      (towing ? "🚗 ومعك البلاطة إذا صار حادث أو تعطّلت السيارة\n" : "") + "\n" +
+      "ردّ علينا هون ومنجدّدلك ياه بدقايق، بلا ما تتحرّك من مطرحك ✅\n\n" +
+      "BF Insurance · تأمينك عَ أصولو";
+  }
+  const when = n < 0 ? "expired on " + fmtDate(p.expiry) : n === 0 ? "expires today, " + fmtDate(p.expiry) : n === 1 ? "expires tomorrow, " + fmtDate(p.expiry) : "expires on " + fmtDate(p.expiry) + " (in " + n + " days)";
+  const priceLine = price ? "💵 Renewal price: $" + price + "\n" : "";
+  if (t.sub) return "Hello " + t.name + " 👋\n" +
+    "A reminder from BF Insurance 🛡️\n\n" +
+    "Your client " + fullName(p) + ": " + what + " " + when + ".\n" +
+    (p.policyNo ? "📄 Policy no: " + p.policyNo + "\n" : "") + priceLine + "\n" +
+    "Let us know if they'd like to renew and we'll handle it right away ✅";
+  return "Hello " + t.name + " 👋\n" +
+    "This is BF Insurance 🛡️\n\n" +
+    "A friendly reminder that your " + what + " " + when + ".\n\n" +
+    priceLine + "💳 Pay by cash, Whish or OMT\n" +
+    (towing ? "🚗 Towing included for accidents and breakdowns\n" : "") + "\n" +
+    "Just reply here and we'll renew it for you in minutes, no need to go anywhere ✅\n\n" +
+    "BF Insurance · Protection, done properly";
 }
 
 /* ---------- shell ---------- */
@@ -91,6 +127,7 @@ function shell() {
     '<button type="button" data-tab="overview">Overview</button>' +
     '<button type="button" data-tab="reminders">Reminders <span class="count" id="remCount" hidden></span></button>' +
     '<button type="button" data-tab="policies">Policies</button>' +
+    '<button type="button" data-tab="clients">Clients</button>' +
     '<button type="button" data-tab="subbrokers">Sub-brokers</button>' +
     '</nav></div></header><main class="wrap" id="view"></main>';
   document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
@@ -107,7 +144,7 @@ function render() {
   const v = $("#view");
   const banner = store.mode === "local" ? '<div class="notice">Test mode: data is saved on this device only. It moves online once Firebase is connected.</div>' : "";
   if (!loaded.policies) { v.innerHTML = banner + (loadError ? '<div class="notice">' + esc(loadError) + '</div>' : '<p class="sub">Loading your policies…</p>'); return; }
-  v.innerHTML = banner + (tab === "overview" ? overview() : tab === "reminders" ? reminders() : tab === "subbrokers" ? subView() : policyList());
+  v.innerHTML = banner + (tab === "overview" ? overview() : tab === "reminders" ? reminders() : tab === "subbrokers" ? subView() : tab === "clients" ? clientsView() : policyList());
   bindView();
 }
 
@@ -249,6 +286,54 @@ function openSubForm(s, onSaved) {
   });
 }
 
+/* ---------- clients ---------- */
+const clientKey = p => fullName(p).toLowerCase().replace(/\s+/g, " ").trim();
+function clientGroups() {
+  const m = new Map();
+  for (const p of policies) { const k = clientKey(p) || "(no name)"; if (!m.has(k)) m.set(k, []); m.get(k).push(p); }
+  return [...m.entries()].map(([k, ps]) => {
+    const today = todayStr();
+    const next = ps.filter(p => !p.renewedTo && p.expiry && p.expiry >= today).map(p => p.expiry).sort()[0] || "";
+    return { k, ps, name: fullName(ps[0]) || "Unnamed client", phone: (ps.find(p => p.phone) || {}).phone || "", next, owes: ps.reduce((a, p) => a + balance(p), 0) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+function clientsView() {
+  const needle = cq.trim().toLowerCase(), all = clientGroups();
+  const list = all.filter(c => !needle || [c.name, c.phone].concat(c.ps.map(p => p.plate), c.ps.map(p => p.policyNo)).some(x => String(x || "").toLowerCase().includes(needle)));
+  const noPhone = all.filter(c => !c.phone).length;
+  let h = '<div class="headrow"><div><h2>Clients</h2><p class="sub">' + list.length + ' of ' + all.length + ' clients' + (noPhone ? ' · ' + noPhone + ' without a phone number' : '') + '</p></div></div>';
+  h += '<div class="tools"><input id="cq" type="search" placeholder="Search name, phone, plate, policy no." value="' + esc(cq) + '"></div>';
+  h += '<div class="list">' + (list.length ? list.map(c => '<div class="row" tabindex="0" data-client="' + esc(c.k) + '">' +
+    '<div class="who"><b>' + esc(c.name) + '</b><small>' + (c.phone ? esc(c.phone) : '<span style="color:var(--bad)">No phone</span>') + '</small></div>' +
+    '<div class="meta"><span class="line">' + c.ps.length + (c.ps.length === 1 ? ' policy' : ' policies') + '</span><small>' + esc([...new Set(c.ps.map(p => lineOf(p.line).en))].join(" · ")) + '</small></div>' +
+    '<div class="meta hide-sm"><small>' + (c.next ? 'Next expiry ' + esc(fmtDate(c.next)) : 'No active policy') + '</small>' + (c.owes > 0 ? '<br><small style="color:var(--bad)">Owes ' + money(c.owes) + '</small>' : '') + '</div>' +
+    '<div><span class="pill ' + (c.next ? "ok" : "n") + '">' + (c.next ? "Active" : "Inactive") + '</span></div></div>').join("") : '<div class="empty">No client matches this search.</div>') + '</div>';
+  return h;
+}
+function openClient(k) {
+  const c = clientGroups().find(x => x.k === k); if (!c) return;
+  const f = c.ps[0], wn = waNumber(c.phone);
+  $("#modal").innerHTML = '<div class="overlay" id="ov"><div class="sheet" role="dialog" aria-modal="true" aria-label="Client"><div class="sheet-head"><div><h2>' + esc(c.name) + '</h2><span class="pill n">' + c.ps.length + (c.ps.length === 1 ? ' policy' : ' policies') + '</span></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' +
+    '<form id="cf"><div class="grid"><label>First name<input id="c_first" value="' + esc(f.firstName) + '"></label><label>Family name<input id="c_last" value="' + esc(f.lastName) + '"></label>' +
+    '<label class="full">Phone (WhatsApp)<span class="phonerow"><input id="c_phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="03 123 456" value="' + esc(c.phone) + '">' +
+    ('contacts' in navigator && 'select' in navigator.contacts ? '<button class="btn small" type="button" id="c_pick">Contacts</button>' : '') +
+    (navigator.clipboard && navigator.clipboard.readText ? '<button class="btn small" type="button" id="c_paste">Paste</button>' : '') + '</span></label></div>' +
+    '<p class="sub">Saving updates the name and phone on all ' + c.ps.length + ' of this client\'s policies.</p>' +
+    '<div class="actions">' + (wn ? '<a class="btn wa" href="https://wa.me/' + esc(wn) + '" target="_blank" rel="noopener">WhatsApp chat</a>' : '') + '<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>' +
+    '<h3>Policies</h3><div class="list">' + c.ps.slice().sort((a, b) => (b.expiry || "").localeCompare(a.expiry || "")).map(rowHTML).join("") + '</div></div></div>';
+  bindModalClose();
+  $("#modal").querySelectorAll("[data-open]").forEach(el => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  const clean = t => { const m = String(t || "").match(/\+?[\d][\d\s\-().]{5,}\d/); return m ? m[0].replace(/[\s\-().]/g, "") : ""; };
+  if ($("#c_pick")) $("#c_pick").addEventListener("click", async () => { try { const [x] = await navigator.contacts.select(["tel"], { multiple: false }); const t = x && clean((x.tel || [])[0]); if (t) $("#c_phone").value = t; } catch (e) { toast("Could not open contacts"); } });
+  if ($("#c_paste")) $("#c_paste").addEventListener("click", async () => { try { const t = clean(await navigator.clipboard.readText()); if (t) $("#c_phone").value = t; else toast("No phone number copied"); } catch (e) { toast("Allow paste, or long-press the box and choose Paste"); } });
+  $("#cf").addEventListener("submit", async e => {
+    e.preventDefault();
+    const data = { firstName: $("#c_first").value.trim(), lastName: $("#c_last").value.trim(), phone: $("#c_phone").value.trim() };
+    try { await Promise.all(c.ps.map(p => store.update("policies", p.id, data))); closeModal(); toast("Client saved"); }
+    catch (err) { toast("Could not save. Check your connection and try again."); }
+  });
+}
+
 function bindView() {
   const v = $("#view");
   v.querySelectorAll("[data-open]").forEach(el => { el.addEventListener("click", () => openDetail(el.dataset.open)); el.addEventListener("keydown", e => { if (e.key === "Enter") openDetail(el.dataset.open); }); });
@@ -259,6 +344,8 @@ function bindView() {
   v.querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => markSent(a.dataset.wa, a.dataset.stage, true)));
   v.querySelectorAll("[data-sent]").forEach(b => b.addEventListener("click", () => markSent(b.dataset.sent, b.dataset.stage, false)));
   const qi = $("#q"); if (qi) qi.addEventListener("input", () => { q = qi.value; const pos = qi.selectionStart; render(); const n = $("#q"); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} });
+  v.querySelectorAll("[data-client]").forEach(el => { el.addEventListener("click", () => openClient(el.dataset.client)); el.addEventListener("keydown", e => { if (e.key === "Enter") openClient(el.dataset.client); }); });
+  const ci = $("#cq"); if (ci) ci.addEventListener("input", () => { cq = ci.value; const pos = ci.selectionStart; render(); const n = $("#cq"); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} });
   const fl = $("#fLine"); if (fl) fl.addEventListener("change", () => { fLine = fl.value; render(); });
   const fs = $("#fStatus"); if (fs) fs.addEventListener("change", () => { fStatus = fs.value; render(); });
   const ex = $("#exportBtn"); if (ex) ex.addEventListener("click", exportCSV);
@@ -515,7 +602,7 @@ function loginView(err) {
 }
 
 /* ---------- start ---------- */
-window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (["overview", "reminders", "policies", "subbrokers"].includes(h) && h !== tab) { tab = h; render(); } });
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (["overview", "reminders", "policies", "clients", "subbrokers"].includes(h) && h !== tab) { tab = h; render(); } });
 store.init(u => {
   user = u;
   if (!u) { loginView(); return; }
