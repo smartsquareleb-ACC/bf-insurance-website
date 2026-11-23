@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=9";
-import * as store from "./store.js?v=9";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=10";
+import * as store from "./store.js?v=10";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -16,12 +16,30 @@ const addYear = s => { if (!s) return ""; const [y, m, d] = s.split("-").map(Num
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const METHODS = ["Cash", "Whish", "OMT", "Other"];
 
+// Total the client pays = price minus any discount.
+const total = p => Math.max(0, num(p.price) - num(p.discount));
+const r2 = v => Math.round(v * 100) / 100;
+const addMonths = (s, k) => { if (!s) return ""; const [y, m, d] = s.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1 + k, 1)); const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate(); t.setUTCDate(Math.min(d, last)); return t.toISOString().slice(0, 10); };
+// Instalment plan: first payment = firstPct % of the total on the start date, the rest split equally, one a month.
+function buildPlan(tot, firstPct, n, start) {
+  tot = r2(tot); n = Math.max(1, Math.round(n || 1)); firstPct = Math.min(100, Math.max(0, num(firstPct)));
+  const first = r2(tot * firstPct / 100), rest = r2(tot - first), each = r2(rest / n);
+  const sched = [{ due: start, amount: first }];
+  for (let i = 1; i <= n; i++) sched.push({ due: addMonths(start, i), amount: i === n ? r2(rest - each * (n - 1)) : each });
+  return { firstPct, n, schedule: sched.filter(x => x.amount > 0) };
+}
+// Each instalment is "paid" once the payments made so far cover it.
+function planStatus(p) {
+  const pl = p.plan; if (!pl || !pl.schedule) return null;
+  let left = paid(p);
+  return pl.schedule.map(x => { const ok = left + 0.005 >= x.amount; left = Math.max(0, left - x.amount); return Object.assign({ paid: ok }, x); });
+}
 const paid = p => (p.payments || []).reduce((a, x) => a + num(x.amount), 0);
-const balance = p => p.supplier === "whish" ? 0 : Math.max(0, num(p.price) - paid(p));  // Whish collects its own payments
+const balance = p => p.supplier === "whish" ? 0 : Math.max(0, total(p) - paid(p));  // Whish collects its own payments
 const fullName = p => [p.firstName, p.lastName].filter(Boolean).join(" ");
 const counts = p => p.supplier !== "whish";                 // Whish Money policies: reminders only, no sales or commission
 const subComm = p => p.viaSub ? num(p.subComm) : 0;
-const profit = p => counts(p) ? num(p.price) - num(p.cost) - subComm(p) : 0;
+const profit = p => counts(p) ? total(p) - num(p.cost) - subComm(p) : 0;
 const isMotor = p => lineOf(p.line).motor;
 
 function waNumber(phone) {
@@ -168,7 +186,7 @@ function overview() {
   const M = monthKey(monthOffset), today = todayStr();
   const inMonth = policies.filter(p => (p.inception || "").startsWith(M.key));
   const sold = inMonth.filter(counts);
-  const sales = sold.reduce((a, p) => a + num(p.price), 0);
+  const sales = sold.reduce((a, p) => a + total(p), 0);
   const prof = sold.reduce((a, p) => a + profit(p), 0);
   const subPay = sold.reduce((a, p) => a + subComm(p), 0);
   const whish = inMonth.length - sold.length;
@@ -383,6 +401,20 @@ function bindView() {
   const mw = $("#mNow"); if (mw) mw.addEventListener("click", () => { monthOffset = 0; render(); });
 }
 
+// Amount suggested for the next payment: the next unpaid instalment, or the whole balance.
+function nextDue(p, b) {
+  const st = planStatus(p); if (!st) return b;
+  let covered = paid(p), acc = 0;
+  for (const x of st) { acc += x.amount; if (acc > covered + 0.005) return r2(Math.min(b, acc - covered)); }
+  return b;
+}
+function planHTML(p) {
+  const st = planStatus(p); if (!st) return "";
+  const today = todayStr();
+  return '<h3 style="margin-top:4px">Instalments</h3><p class="sub">First payment ' + p.plan.firstPct + '% then ' + p.plan.n + (p.plan.n === 1 ? ' payment' : ' monthly payments') + '.</p>' +
+    st.map((x, i) => '<div class="pay"><span>' + (i === 0 ? 'First payment' : 'Payment ' + (i + 1)) + ' · ' + esc(fmtDate(x.due)) + '</span><span style="display:flex;gap:10px;align-items:center"><b>' + money(x.amount) + '</b><span class="pill ' + (x.paid ? 'ok">Paid' : x.due < today ? 'bad">Late' : 'n">Due') + '</span></span></div>').join("");
+}
+
 /* ---------- detail ---------- */
 function openDetail(id) { confirmDel = false; drawDetail(id); }
 function drawDetail(id) {
@@ -399,16 +431,16 @@ function drawDetail(id) {
     dd("Policy number", esc(p.policyNo || "—")) + (L.motor ? dd("Car plate", p.plate ? '<span class="plate">' + esc(p.plate) + '</span>' : "—") : '') +
     dd("Supplier", esc(p.supplier === "other" ? (p.supplierOther || "Other") : sup.en)) +
     dd("Inception", esc(fmtDate(p.inception))) + dd("Expiry", esc(fmtDate(p.expiry))) +
-    dd("Price / cost", money(p.price) + " / " + money(p.cost)) +
+    dd("Price / cost", money(p.price) + " / " + money(p.cost)) + (num(p.discount) > 0 ? dd("Discount", "−" + money(p.discount) + " → client pays " + money(total(p))) : '') +
     (p.viaSub ? dd("Sub-broker commission", money(p.subComm)) : '') +
     dd("My profit", counts(p) ? '<span style="color:var(--ok)">' + money(profit(p)) + '</span>' : "Not counted (Whish)") +
     dd("Reminders", "30 days: " + (r.d30 ? esc(fmtDate(r.d30)) : "not sent") + "<br>15 days: " + (r.d15 ? esc(fmtDate(r.d15)) : "not sent")) +
     (p.notes ? '<div style="grid-column:1/-1"><dt>Notes</dt><dd style="white-space:pre-wrap;font-weight:400">' + esc(p.notes) + '</dd></div>' : '') + '</dl>' +
-    '<div class="bal"><div><span>Price</span><b>' + money(p.price) + '</b></div><div><span>Paid</span><b style="color:var(--ok)">' + money(pd) + '</b></div><div><span>Remaining</span><b style="color:' + (b > 0 ? 'var(--bad)' : 'inherit') + '">' + money(b) + '</b></div></div>' +
-    remBox(p) +
+    '<div class="bal"><div><span>Total</span><b>' + money(total(p)) + '</b></div><div><span>Paid</span><b style="color:var(--ok)">' + money(pd) + '</b></div><div><span>Remaining</span><b style="color:' + (b > 0 ? 'var(--bad)' : 'inherit') + '">' + money(b) + '</b></div></div>' +
+    remBox(p) + planHTML(p) +
     '<h3 style="margin-top:4px">Payments</h3>' +
     (pays.length ? pays.map((x, i) => '<div class="pay"><span>' + esc(fmtDate(x.date)) + ' · ' + esc(x.method || "") + '</span><span style="display:flex;gap:10px;align-items:center"><b>' + money(x.amount) + '</b><button class="btn small danger" type="button" data-delpay="' + esc(x.id || String(i)) + '">Remove</button></span></div>').join("") : '<p class="sub">No payments yet.</p>') +
-    '<form class="payform" id="payForm"><label>Amount ($)<input id="payAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (b > 0 ? b : "") + '" required></label>' +
+    '<form class="payform" id="payForm"><label>Amount ($)<input id="payAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (b > 0 ? nextDue(p, b) : "") + '" required></label>' +
     '<label>Date<input id="payDate" type="date" value="' + todayStr() + '" required></label>' +
     '<label>Method<select id="payMethod">' + METHODS.map(m => '<option>' + m + '</option>').join("") + '</select></label>' +
     '<button class="btn primary" type="submit">Add payment</button></form>' +
@@ -432,7 +464,7 @@ function drawDetail(id) {
   if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
   $("#renewBtn").addEventListener("click", () => {
     const start = p.expiry || todayStr();
-    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, closed, closedAt, ...rest } = p;
+    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, closed, closedAt, plan, discount, ...rest } = p;
     openForm({ ...rest, inception: start, expiry: addYear(start), _renewFrom: p.id });
   });
   $("#delBtn").addEventListener("click", () => { confirmDel = true; drawDetail(p.id); });
@@ -489,10 +521,15 @@ function openForm(p) {
     '</div></fieldset>' +
     '<fieldset><legend>Money</legend><div class="grid">' +
       '<label>Price to client ($)<input id="f_price" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(d0.price) + '"></label>' +
+      '<label>Discount on total ($)<input id="f_disc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="' + esc(d0.discount || "") + '"></label>' +
       '<label>Cost ($)<input id="f_cost" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(d0.cost) + '"></label>' +
       '<label id="subCommWrap">Commission to sub-broker ($)<input id="f_subComm" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(d0.subComm) + '"></label>' +
       '<div class="calc full" id="calcBox"></div>' +
       '<p class="hint full" id="sugHint" hidden></p>' +
+      '<label class="full">Payment<select id="f_payMode"><option value="full"' + (d0.plan ? '' : ' selected') + '>Pay in full</option><option value="plan"' + (d0.plan ? ' selected' : '') + '>Instalments</option></select></label>' +
+      '<label class="planF">First payment (% of total)<input id="f_firstPct" type="number" min="0" max="100" step="1" inputmode="numeric" value="' + esc(d0.plan ? d0.plan.firstPct : 50) + '"></label>' +
+      '<label class="planF">Then how many payments<input id="f_n" type="number" min="1" max="24" step="1" inputmode="numeric" value="' + esc(d0.plan ? d0.plan.n : 2) + '"></label>' +
+      '<div class="calc full planF" id="planBox" style="flex-direction:column"></div>' +
       (isEdit ? '' : '<label>Paid now ($)<input id="f_paid" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Empty if nothing paid yet"></label><label>Paid by<select id="f_method">' + METHODS.map(m => '<option>' + m + '</option>').join("") + '</select></label>') +
       '<label class="full">Notes<textarea id="f_notes" placeholder="Anything to remember about this client">' + esc(d0.notes) + '</textarea></label>' +
     '</div></fieldset>' +
@@ -501,6 +538,7 @@ function openForm(p) {
 
   let details = Object.assign({}, d0.details || {});
   let priceTouched = isEdit || d0.price != null && d0.price !== "", expTouched = isEdit;
+  let paidTouched = false;
   const lineEl = $("#f_line"), inc = $("#f_inc"), exp = $("#f_exp");
 
   function drawOptions() {
@@ -529,11 +567,18 @@ function openForm(p) {
     if (L.k === "travel" && !expTouched && inc.value) { const n = TRAVEL_DAYS[details.duration || "Up to 7 days"]; if (n) exp.value = addDays(inc.value, n - 1); }
     else if (!expTouched && inc.value) exp.value = addYear(inc.value);
     // money box
-    const price = num($("#f_price").value), cost = num($("#f_cost").value), sc = via ? num($("#f_subComm").value) : 0;
+    const price = num($("#f_price").value) - num($("#f_disc").value), cost = num($("#f_cost").value), sc = via ? num($("#f_subComm").value) : 0;
     const box = $("#calcBox");
     if (sup === "whish") box.innerHTML = '<span>Whish Money policy</span><b>Not counted in sales or profit</b>';
     else if (via) box.innerHTML = '<span>Total commission ' + money(price - cost) + ' · to sub-broker ' + money(sc) + '</span><b>I keep ' + money(price - cost - sc) + '</b>';
     else box.innerHTML = '<span>My profit on this policy</span><b>' + money(price - cost) + '</b>';
+    const tot = Math.max(0, price), isPlan = $("#f_payMode").value === "plan";
+    document.querySelectorAll("#pf .planF").forEach(el => el.hidden = !isPlan);
+    if (isPlan) {
+      const pl = buildPlan(tot, $("#f_firstPct").value, num($("#f_n").value), inc.value || todayStr());
+      $("#planBox").innerHTML = '<b>Total ' + money(tot) + '</b>' + pl.schedule.map((x, i) => '<div style="display:flex;justify-content:space-between;gap:10px"><span>' + (i === 0 ? 'First payment' : 'Payment ' + (i + 1)) + ' · ' + esc(fmtDate(x.due)) + '</span><b>' + money(x.amount) + '</b></div>').join("");
+      const pn = $("#f_paid"); if (pn && !paidTouched) pn.value = pl.schedule[0] ? pl.schedule[0].amount : "";
+    } else { const pn = $("#f_paid"); if (pn && !paidTouched) pn.value = ""; }
   }
   lineEl.addEventListener("change", () => { details = {}; priceTouched = false; drawOptions(); });
   ["#f_sup", "#f_viaSub"].forEach(s => $(s).addEventListener("change", refresh));
@@ -559,6 +604,9 @@ function openForm(p) {
   });
   ["#f_price", "#f_cost"].forEach(s => $(s).addEventListener("input", () => { priceTouched = true; refresh(); }));
   $("#f_subComm").addEventListener("input", refresh);
+  ["#f_disc", "#f_firstPct", "#f_n"].forEach(s => $(s).addEventListener("input", refresh));
+  $("#f_payMode").addEventListener("change", refresh);
+  if ($("#f_paid")) $("#f_paid").addEventListener("input", () => { paidTouched = true; });
   exp.addEventListener("input", () => expTouched = true);
   inc.addEventListener("change", refresh);
 
@@ -569,7 +617,8 @@ function openForm(p) {
       firstName: $("#f_first").value.trim(), lastName: $("#f_last").value.trim(), phone: $("#f_phone").value.trim(),
       line: L.k, details: readDetails(L), policyNo: $("#f_no").value.trim(), plate: L.motor ? $("#f_plate").value.trim().toUpperCase() : "",
       inception: inc.value, expiry: exp.value, price: num($("#f_price").value), cost: num($("#f_cost").value), subComm: $("#f_viaSub").checked ? num($("#f_subComm").value) : 0,
-      notes: $("#f_notes").value.trim()
+      notes: $("#f_notes").value.trim(), discount: num($("#f_disc").value),
+      plan: $("#f_payMode").value === "plan" ? buildPlan(Math.max(0, num($("#f_price").value) - num($("#f_disc").value)), $("#f_firstPct").value, num($("#f_n").value), inc.value || todayStr()) : null
     });
   }
 
