@@ -1,0 +1,13 @@
+rules_version = '2';
+// BF Policy Desk: only accounts listed in /members can read or write.
+// To give someone access, add a document /members/<their user UID> in the Firebase console.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function member() {
+      return request.auth != null && exists(/databases/$(database)/documents/members/$(request.auth.uid));
+    }
+    match /policies/{id}   { allow read, write: if member(); }
+    match /subbrokers/{id} { allow read, write: if member(); }
+    match /members/{uid}   { allow read: if request.auth != null && request.auth.uid == uid; }
+  }
+}
