@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=8";
-import * as store from "./store.js?v=8";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=9";
+import * as store from "./store.js?v=9";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -46,7 +46,7 @@ const byId = id => policies.find(p => p.id === id);
 function status(p) {
   const n = daysUntil(p.expiry);
   if (p.renewedTo) return { c: "n", t: "Renewed" };
-  if (p.closed) return { c: "n", t: "Not renewing" };
+  if (p.closed) return { c: "n", t: p.closed === "endorsement" ? "Endorsement" : "Not renewing" };
   if (n === null) return { c: "n", t: "No expiry" };
   if (n < 0) return { c: "bad", t: "Expired" };
   if (n <= 30) return { c: "warn", t: n === 0 ? "Expires today" : "Expires in " + n + " d" };
