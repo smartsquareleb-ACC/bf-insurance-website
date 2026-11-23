@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js";
-import * as store from "./store.js";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=8";
+import * as store from "./store.js?v=8";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
