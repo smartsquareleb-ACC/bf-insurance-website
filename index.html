@@ -232,7 +232,8 @@ const PRICES = {
     },
     childMax: 12,                                  // portal: age (current year - birth year) 12 or under = half price
     ages: [[65, 1], [70, 1.5], [75, 2], [86, 4]],  // [up to age, factor]
-    maxAge: 86, sports: 0.5, maxStay: 92
+    maxAge: 86, sports: 0.5, maxStay: 92,
+    consec: {comfort: [122, 200], comfortplus: [145, 250], premium: [320, 600]}  // portal "Consecutive Stay" 184 days / 1 year
   },
   accident: { rates: {A:0.001, B:0.00125, C:0.0015, D:0.002}, fee: 25, min: 50, minSI: 25000, maxSI: 1000000, ageMin: 18, ageMax: 64 },
   home: { perSqm: 750, rate: 0.0008, min: 250, fee: [[1000,10],[5000,25],[Infinity,50]], solar: 0.003, gen: 0.003, extraMin: 50, workers: 35, maxTSI: 9000000 },
@@ -285,7 +286,7 @@ en:{
  days:"days", child:"child",
  e_dates:"Please choose both dates.", e_order:"The return date must be after the departure date.", e_past:"The departure date can't be in the past.", e_long:"Trips longer than one year can't be priced online. Send us a message.",
  e_dob:"Please add each traveller's date of birth.", e_old:"Travellers aged 87 or more can't be insured online. Send us a message and we'll find a solution.",
- n_stay:"Each single stay abroad is covered for up to 92 days.", n_sports:"Includes cover for sports activities.",
+ stay_q:"How will you be abroad?", stay_multi:"Several trips (each stay up to 92 days)", stay_one:"One long stay for the whole period", stay_one_s:"one long stay", n_one:"Covers one continuous stay abroad for the whole period.", n_stay:"Each single stay abroad is covered for up to 92 days.", n_sports:"Includes cover for sports activities.",
  // car
  cq1:"What kind of vehicle?", ch1:"Online prices are for private cars.",
  v_private:"Private car", vd_private:"Sedan, SUV or jeep", v_comm:"Commercial or motorcycle", vd_comm:"Taxi, truck, van, pickup, motorcycle",
@@ -385,7 +386,7 @@ ar:{
  days:"يوماً", child:"طفل",
  e_dates:"يرجى اختيار التاريخين.", e_order:"يجب أن يكون تاريخ العودة بعد تاريخ المغادرة.", e_past:"لا يمكن أن يكون تاريخ المغادرة في الماضي.", e_long:"لا يمكن تسعير الرحلات التي تتجاوز السنة عبر الإنترنت. راسلنا.",
  e_dob:"يرجى إضافة تاريخ ميلاد كل مسافر.", e_old:"لا يمكن تأمين المسافرين بعمر 87 سنة وما فوق عبر الإنترنت. راسلنا وسنجد حلاً.",
- n_stay:"تُغطّى كل إقامة واحدة في الخارج حتى 92 يوماً.", n_sports:"يشمل تغطية النشاطات الرياضية.",
+ stay_q:"كيف ستكون في الخارج؟", stay_multi:"عدة رحلات (كل إقامة حتى 92 يوماً)", stay_one:"إقامة واحدة طويلة طوال المدة", stay_one_s:"إقامة واحدة طويلة", n_one:"تغطي إقامة واحدة متواصلة في الخارج طوال المدة.", n_stay:"تُغطّى كل إقامة واحدة في الخارج حتى 92 يوماً.", n_sports:"يشمل تغطية النشاطات الرياضية.",
  cq1:"ما نوع المركبة؟", ch1:"الأسعار عبر الإنترنت للسيارات الخاصة.",
  v_private:"سيارة خاصة", vd_private:"سيدان، رباعية الدفع أو جيب", v_comm:"تجارية أو دراجة نارية", vd_comm:"تاكسي، شاحنة، فان، بيك أب، دراجة نارية",
  cq2:"ما التغطية التي تحتاجها؟", ch2:"التأمين الإلزامي مفروض بالقانون. ضد الغير يغطي الأضرار التي تسببها لسيارات وممتلكات الآخرين.",
@@ -480,7 +481,7 @@ lb:{
  days:"يوم", child:"ولد",
  e_dates:"نقّي التاريخين.", e_order:"يوم الرجعة لازم يكون بعد يوم الفلّة.", e_past:"يوم الفلّة ما فيه يكون مضى.", e_long:"السفرات الأطول من سنة ما منسعّرها أونلاين. إبعتلنا.",
  e_dob:"زيد تاريخ ميلاد كل مسافر.", e_old:"اللي عمرن 87 وفوق ما فينا نأمّنن أونلاين. إبعتلنا ومندبّرلك حل.",
- n_stay:"كل قعدة برّا بتتغطّى لحد 92 يوم.", n_sports:"مع تغطية للرياضة.",
+ stay_q:"كيف رح تكون برّا؟", stay_multi:"كذا سفرة (كل قعدة لحد 92 يوم)", stay_one:"قعدة وحدة طويلة كل المدة", stay_one_s:"قعدة وحدة طويلة", n_one:"بتغطي قعدة وحدة متواصلة برّا كل المدة.", n_stay:"كل قعدة برّا بتتغطّى لحد 92 يوم.", n_sports:"مع تغطية للرياضة.",
  cq1:"شو نوع السيارة؟", ch1:"الأسعار أونلاين للسيارات الخاصة.",
  v_private:"سيارة خاصة", vd_private:"سيدان، SUV أو جيب", v_comm:"تجارية أو موتو", vd_comm:"تاكسي، شاحنة، فان، بيك أب، موتو",
  cq2:"شو التغطية اللي بدّك ياها؟", ch2:"الإلزامي إجباري بالقانون. الأضرار المادية بتغطّي الضرر اللي بتعملو بأغراض الناس.",
@@ -645,11 +646,11 @@ function reqLines(id){
 }
 
 const FLOWS = {
- travel: { id:"travel", init: () => ({plan:"comfort", dep:addDays(today(),7), ret:addDays(today(),14), trav:[""], sports:false}), steps: () => [
+ travel: { id:"travel", init: () => ({plan:"comfort", dep:addDays(today(),7), ret:addDays(today(),14), trav:[""], sports:false, stay:"multi"}), steps: () => [
    {q:"tq1", h:"th1", auto:true, html: () => choice("plan", ["comfort","comfortplus","premium"].map(p => ({v:p, b:t("tp_"+p), s:t("tpd_"+p), pr:t("from").replace("{p}", fmt(PRICES.travel.plans[p].adult[0]))}))) + benTable(["comfort","comfortplus","premium"].map(p=>t("tp_"+p)), t("trben"), true)},
    {q:"tq2", h:"th2", html: () => `<div class="row"><div class="field"><label class="f">${esc(t("dep"))}</label><input type="date" data-s="dep" min="${today()}" value="${S.dep}"></div><div class="field"><label class="f">${esc(t("ret"))}</label><input type="date" data-s="ret" min="${today()}" value="${S.ret}"></div></div>`,
      check: () => !S.dep||!S.ret ? t("e_dates") : S.dep < today() ? t("e_past") : S.ret <= S.dep ? t("e_order") : tripDays() > 365 ? t("e_long") : ""},
-   {q:"tq3", h:"th3", html: () => people("trav","trav","addTrav") + `<label class="check"><input type="checkbox" data-s="sports" ${S.sports?"checked":""}> ${esc(t("sports"))}</label>`,
+   {q:"tq3", h:"th3", html: () => (tripDays() > PRICES.travel.maxStay ? `<div class="field"><label class="f">${esc(t("stay_q"))}</label><select data-s="stay"><option value="multi" ${S.stay!=="one"?"selected":""}>${esc(t("stay_multi"))}</option><option value="one" ${S.stay==="one"?"selected":""}>${esc(t("stay_one"))}</option></select></div>` : "") + people("trav","trav","addTrav") + `<label class="check"><input type="checkbox" data-s="sports" ${S.sports?"checked":""}> ${esc(t("sports"))}</label>`,
      check: () => S.trav.some(d=>!d) ? t("e_dob") : S.trav.some(d=>trAge(d) > PRICES.travel.maxAge) ? t("e_old") : ""},
    {html: travelResult}
  ]},
@@ -776,7 +777,8 @@ const tripDays = () => Math.round((new Date(S.ret) - new Date(S.dep)) / 864e5);
 function travelPrice(plan, days, age){
   const P = PRICES.travel, bi = P.bands.findIndex(m => days <= m);
   const f = age <= P.childMax ? .5 : P.ages.find(a => age <= a[0])[1];
-  let p = P.plans[plan].adult[bi] * f; if (S.sports) p *= 1 + P.sports;
+  const base = S.stay === "one" && bi >= 5 ? P.consec[plan][bi - 5] : P.plans[plan].adult[bi];
+  let p = base * f; if (S.sports) p *= 1 + P.sports;
   return Math.round(p + 1e-9);   // portal rounds each traveller to whole dollars (12.5 -> 13)
 }
 function travelResult(){
@@ -784,10 +786,10 @@ function travelResult(){
   const lines = S.trav.map((d,i) => { const a = trAge(d), p = travelPrice(S.plan, days, a); total += p;
     return [`${t("trav")} ${i+1} (${a}${a<=PRICES.travel.childMax?", "+t("child"):""})`, fmt(p)]; });
   total = Math.round(total * 100) / 100;
-  const notes = []; if (days > PRICES.travel.maxStay) notes.push(t("n_stay")); if (S.sports) notes.push(t("n_sports"));
+  const notes = []; const one = S.stay === "one" && days > PRICES.travel.maxStay; if (days > PRICES.travel.maxStay) notes.push(t(one ? "n_one" : "n_stay")); if (S.sports) notes.push(t("n_sports"));
   const pi = ["comfort","comfortplus","premium"].indexOf(S.plan);
-  return result({label: `${t("tp_"+S.plan)} · ${days} ${t("days")}`, total, buy:true, lines:[...lines, ...t("trben").map(([k,v]) => [k, v[pi]])], notes,
-    msgLines:[`${t("p_travel")}: ${t("tp_"+S.plan)} (${t("tpd_"+S.plan)})`, `${S.dep} → ${S.ret} (${days} ${t("days")})`, ...lines.map(l=>`${l[0]}: ${l[1]}`), S.sports?t("sports"):"", `${t("total")}: ${fmt(total)}`].filter(Boolean)});
+  return result({label: `${t("tp_"+S.plan)} · ${days} ${t("days")}${one ? " · " + t("stay_one_s") : ""}`, total, buy:true, lines:[...lines, ...t("trben").map(([k,v]) => [k, v[pi]])], notes,
+    msgLines:[`${t("p_travel")}: ${t("tp_"+S.plan)} (${t("tpd_"+S.plan)})`, `${S.dep} → ${S.ret} (${days} ${t("days")})${one ? " · " + t("stay_one_s") : ""}`, ...lines.map(l=>`${l[0]}: ${l[1]}`), S.sports?t("sports"):"", `${t("total")}: ${fmt(total)}`].filter(Boolean)});
 }
 /* car calc */
 function carTable(){
