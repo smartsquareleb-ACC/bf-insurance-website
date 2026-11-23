@@ -114,7 +114,7 @@ function message(p, l) {
       (p.policyNo ? "📄 رقم البوليصة: " + p.policyNo + "\n" : "") + priceLine + "\n" +
       "خبّرنا إذا بدّو يجدّد ومنخلّصها فورًا ✅";
     return "مرحبا " + t.name + " 👋\n" +
-      "معك BF Insurance 🛡️\n\n" +
+      "معك شربل من BF Insurance 🛡️\n\n" +
       "حبّينا نذكّرك إنّو " + what + " " + when + ".\n\n" +
       priceLine + pay +
       (towing ? "🚗 ومعك البلاطة إذا صار حادث أو تعطّلت السيارة\n" : "") + "\n" +
@@ -129,7 +129,7 @@ function message(p, l) {
     (p.policyNo ? "📄 Policy no: " + p.policyNo + "\n" : "") + priceLine + "\n" +
     "Let us know if they'd like to renew and we'll handle it right away ✅";
   return "Hello " + t.name + " 👋\n" +
-    "This is BF Insurance 🛡️\n\n" +
+    "It's Charbel from BF Insurance 🛡️\n\n" +
     "Your " + what + " " + when + ".\n\n" +
     priceLine + "💳 Pay by cash, Whish or OMT\n" +
     (towing ? "🚗 Towing included for accidents and breakdowns\n" : "") + "\n" +
