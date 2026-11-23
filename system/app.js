@@ -61,23 +61,59 @@ function reminderStage(p) {
 }
 const target = p => { if (p.viaSub) { const s = subOf(p.subId); return { name: s ? s.name : "sub-broker", phone: s ? s.phone : "", sub: true }; } return { name: p.firstName || fullName(p), phone: p.phone, sub: false }; };
 
-function message(p, l) {
-  const L = lineOf(p.line), t = target(p), n = Math.max(0, daysUntil(p.expiry));
-  const plate = isMotor(p) && p.plate ? p.plate : "";
-  if (l === "ar") {
-    if (t.sub) return "مرحبا " + t.name + "، تذكير من BF Insurance للتأمين.\n" +
-      L.ar + " للزبون " + fullName(p) + (p.policyNo ? " (رقم " + p.policyNo + ")" : "") + (plate ? " للسيارة " + plate : "") +
-      " بتخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + n + " يوم).\nبدّك نجدّدها؟";
-    return "مرحبا " + t.name + "، معك BF Insurance للتأمين.\n" +
-      L.ar + (p.policyNo ? " رقم " + p.policyNo : "") + (plate ? " للسيارة " + plate : "") +
-      " بتخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + n + " يوم).\nبتحب نجدّدلك ياها؟ ردّ علينا هون ومنخلّصلك ياها.";
+// Renewal price shown in the reminder: today's portal price when the line has a fixed price, else last price.
+function renewPrice(p) {
+  const sg = suggest(p.line, p.details || {});
+  const v = sg && sg.price ? sg.price : num(p.price);
+  return v > 0 ? v : 0;
+}
+function lineName(p, l) {
+  const L = lineOf(p.line), d = p.details || {}, ar = l === "ar";
+  if (p.line === "motor_tpl") {
+    if (d.cover === "Elzeme only") return ar ? "التأمين الإلزامي" : "compulsory insurance (Elzeme)";
+    if (d.cover === "Dod l gheir only") return ar ? "تأمين ضد الغير" : "third-party insurance (Dod l gheir)";
+    return ar ? "التأمين الإلزامي وضد الغير" : "Elzeme + Dod l gheir insurance";
   }
-  if (t.sub) return "Hello " + t.name + ", a reminder from BF Insurance.\n" +
-    "Your client " + fullName(p) + "'s " + L.en + " policy" + (p.policyNo ? " no. " + p.policyNo : "") + (plate ? " (plate " + plate + ")" : "") +
-    " expires on " + fmtDate(p.expiry) + " (" + n + " days left).\nShall we renew it?";
-  return "Hello " + t.name + ", this is BF Insurance.\n" +
-    "Your " + L.en + " policy" + (p.policyNo ? " no. " + p.policyNo : "") + (plate ? " for plate " + plate : "") +
-    " expires on " + fmtDate(p.expiry) + " (" + n + " days left).\nWould you like us to renew it? Just reply here and we'll take care of it.";
+  if (p.line === "worker") return (ar ? "تأمين العاملة" : "domestic worker insurance") + (d.workerName ? (ar ? " " : " for ") + d.workerName : "");
+  if (p.line === "other" && d.what) return d.what;
+  return ar ? L.ar : L.en + " insurance";
+}
+function message(p, l) {
+  const t = target(p), n = daysUntil(p.expiry), ar = l === "ar";
+  const plate = isMotor(p) && p.plate ? p.plate : "";
+  const price = renewPrice(p), towing = p.line === "motor_tpl" && (p.details || {}).cover !== "Elzeme only";
+  const what = lineName(p, l) + (plate ? (ar ? " للسيارة رقم " : " for plate ") + plate : "");
+  if (ar) {
+    const when = n < 0 ? "خلص بتاريخ " + fmtDate(p.expiry) : n === 0 ? "بيخلص اليوم " + fmtDate(p.expiry) : n === 1 ? "بيخلص بكرا " + fmtDate(p.expiry) : "بيخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + (n === 2 ? "يومين" : n + " يوم") + ")";
+    const priceLine = price ? "💵 سعر التجديد: $" + price + "\n" : "";
+    const pay = "💳 الدفع كاش، Whish أو OMT\n";
+    if (t.sub) return "مرحبا " + t.name + " 👋\n" +
+      "تذكير من BF Insurance 🛡️\n\n" +
+      "الزبون " + fullName(p) + ": " + what + " " + when + ".\n" +
+      (p.policyNo ? "📄 رقم البوليصة: " + p.policyNo + "\n" : "") + priceLine + "\n" +
+      "خبّرنا إذا بدّو يجدّد ومنخلّصها فورًا ✅";
+    return "مرحبا " + t.name + " 👋\n" +
+      "معك BF Insurance 🛡️\n\n" +
+      "حبّينا نذكّرك إنّو " + what + " " + when + ".\n\n" +
+      priceLine + pay +
+      (towing ? "🚗 ومعك البلاطة إذا صار حادث أو تعطّلت السيارة\n" : "") + "\n" +
+      "ردّ علينا هون ومنجدّدلك ياه بدقايق، بلا ما تتحرّك من مطرحك ✅\n\n" +
+      "BF Insurance · تأمينك عَ أصولو";
+  }
+  const when = n < 0 ? "expired on " + fmtDate(p.expiry) : n === 0 ? "expires today, " + fmtDate(p.expiry) : n === 1 ? "expires tomorrow, " + fmtDate(p.expiry) : "expires on " + fmtDate(p.expiry) + " (in " + n + " days)";
+  const priceLine = price ? "💵 Renewal price: $" + price + "\n" : "";
+  if (t.sub) return "Hello " + t.name + " 👋\n" +
+    "A reminder from BF Insurance 🛡️\n\n" +
+    "Your client " + fullName(p) + ": " + what + " " + when + ".\n" +
+    (p.policyNo ? "📄 Policy no: " + p.policyNo + "\n" : "") + priceLine + "\n" +
+    "Let us know if they'd like to renew and we'll handle it right away ✅";
+  return "Hello " + t.name + " 👋\n" +
+    "This is BF Insurance 🛡️\n\n" +
+    "A friendly reminder that your " + what + " " + when + ".\n\n" +
+    priceLine + "💳 Pay by cash, Whish or OMT\n" +
+    (towing ? "🚗 Towing included for accidents and breakdowns\n" : "") + "\n" +
+    "Just reply here and we'll renew it for you in minutes, no need to go anywhere ✅\n\n" +
+    "BF Insurance · Protection, done properly";
 }
 
 /* ---------- shell ---------- */
