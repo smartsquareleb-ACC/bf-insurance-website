@@ -46,13 +46,16 @@ const byId = id => policies.find(p => p.id === id);
 function status(p) {
   const n = daysUntil(p.expiry);
   if (p.renewedTo) return { c: "n", t: "Renewed" };
+  if (p.closed) return { c: "n", t: "Not renewing" };
   if (n === null) return { c: "n", t: "No expiry" };
   if (n < 0) return { c: "bad", t: "Expired" };
   if (n <= 30) return { c: "warn", t: n === 0 ? "Expires today" : "Expires in " + n + " d" };
   return { c: "ok", t: "Active" };
 }
+// A renewal stays open (and in the daily alert) from 30 days before expiry until it is renewed or marked "Not renewing". Travel is never renewed.
+const openRenewal = p => p.line !== "travel" && !p.renewedTo && !p.closed && !!p.expiry && daysUntil(p.expiry) <= 30;
 function reminderStage(p) {
-  if (p.renewedTo) return null;
+  if (p.renewedTo || p.closed || p.line === "travel") return null;
   const n = daysUntil(p.expiry); if (n === null) return null;
   const r = p.reminders || {};
   if (n >= 0 && n <= 15 && !r.d15) return "d15";
@@ -139,7 +142,7 @@ function setTab(t) { tab = t; try { history.replaceState(null, "", "#" + t); } c
 function render() {
   if (!$("#view")) return;
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-current", String(b.dataset.tab === tab)));
-  const due = policies.filter(reminderStage).length, rc = $("#remCount");
+  const due = policies.filter(openRenewal).length, rc = $("#remCount");
   rc.hidden = !due; rc.textContent = due;
   const v = $("#view");
   const banner = store.mode === "local" ? '<div class="notice">Test mode: data is saved on this device only. It moves online once Firebase is connected.</div>' : "";
@@ -189,12 +192,12 @@ function overview() {
 /* ---------- reminders ---------- */
 function reminders() {
   const list = policies.filter(reminderStage).sort((a, b) => a.expiry.localeCompare(b.expiry));
-  const expired = policies.filter(p => !p.renewedTo && p.expiry && daysUntil(p.expiry) < 0 && daysUntil(p.expiry) >= -60).sort((a, b) => b.expiry.localeCompare(a.expiry));
-  const waiting = policies.filter(p => { const r = p.reminders || {}; return (r.d30 || r.d15) && !reminderStage(p) && !p.renewedTo && daysUntil(p.expiry) >= 0; });
-  let h = '<h2>Reminders</h2><p class="sub">Each policy comes up 30 days and 15 days before it expires. Sub-broker policies go to the sub-broker. Tap WhatsApp, check the message, and press send.</p>';
+  const expired = policies.filter(p => openRenewal(p) && daysUntil(p.expiry) < 0).sort((a, b) => b.expiry.localeCompare(a.expiry));
+  const waiting = policies.filter(p => openRenewal(p) && !reminderStage(p) && daysUntil(p.expiry) >= 0).sort((a, b) => a.expiry.localeCompare(b.expiry));
+  let h = '<h2>Reminders</h2><p class="sub">Each policy comes up 30 days and 15 days before it expires. Sub-broker policies go to the sub-broker. Tap WhatsApp, check the message, and press send. A policy stays here until you renew it or mark it <b>Not renewing</b>.</p>';
   h += '<div class="list">' + (list.length ? list.map(remHTML).join("") : '<div class="empty">Nothing to send right now.</div>') + '</div>';
-  if (waiting.length) h += '<h3>Reminded, waiting for renewal</h3><div class="list">' + waiting.map(rowHTML).join("") + '</div>';
-  if (expired.length) h += '<h3>Expired in the last 60 days, not renewed</h3><div class="list">' + expired.map(rowHTML).join("") + '</div>';
+  if (waiting.length) h += '<h3>Reminded, waiting for an answer</h3><div class="list">' + waiting.map(rowHTML).join("") + '</div>';
+  if (expired.length) h += '<h3>Expired, not renewed yet</h3><div class="list">' + expired.map(rowHTML).join("") + '</div>';
   return h;
 }
 function remHTML(p) {
@@ -205,12 +208,13 @@ function remHTML(p) {
     '<div class="acts"><span class="seg" role="group" aria-label="Message language"><button type="button" data-lang="ar" data-id="' + esc(p.id) + '" aria-pressed="' + (l === "ar") + '">عربي</button><button type="button" data-lang="en" data-id="' + esc(p.id) + '" aria-pressed="' + (l === "en") + '">English</button></span>' +
     (wn ? '<a class="btn wa small" href="' + esc(href) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp</a>' : '<span class="pill bad">Add a phone number</span>') +
     '<button class="btn small" type="button" data-copy="' + esc(p.id) + '">Copy</button>' +
-    '<button class="btn small" type="button" data-sent="' + esc(p.id) + '" data-stage="' + st + '">Mark sent</button></div>' +
+    '<button class="btn small" type="button" data-sent="' + esc(p.id) + '" data-stage="' + st + '">Mark sent</button>' +
+    '<button class="btn small" type="button" data-close-pol="' + esc(p.id) + '">Not renewing</button></div>' +
     '<div class="msg" dir="' + (l === "ar" ? "rtl" : "ltr") + '">' + esc(msg) + '</div></div>';
 }
 // Reminder buttons on the policy screen: shown from 30 days before expiry, or any time on request.
 function remBox(p) {
-  if (p.renewedTo) return "";
+  if (p.renewedTo || p.closed || p.line === "travel") return "";
   const n = daysUntil(p.expiry); if (n === null || n < -60) return "";
   const t = target(p), wn = waNumber(t.phone), st = reminderStage(p) || "";
   if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Renewal reminder</h3><p class="sub">Add a phone number (Edit) to send the WhatsApp reminder.</p></div>';
@@ -219,6 +223,10 @@ function remBox(p) {
     '<p class="sub">Opens WhatsApp with the message ready' + (t.sub ? ' for ' + esc(t.name) : '') + '. Check it and press send.</p>' +
     '<div class="acts"><a class="btn wa small" href="' + esc(link("ar")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp عربي</a>' +
     '<a class="btn wa small" href="' + esc(link("en")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp English</a></div></div>';
+}
+async function setClosed(id, on) {
+  try { await store.update("policies", id, on ? { closed: "not_renewing", closedAt: todayStr() } : { closed: null, closedAt: null }); toast(on ? "Marked not renewing. No more alerts for it." : "Back on the renewal list"); }
+  catch (e) { toast("Could not save. Check your connection and try again."); }
 }
 async function markSent(id, stage, viaWa) {
   const p = byId(id); if (!p || !stage) return;
@@ -362,6 +370,7 @@ function bindView() {
   v.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => { const p = byId(b.dataset.copy); navigator.clipboard.writeText(message(p, lang[p.id] || "ar")).then(() => toast("Message copied"), () => toast("Copy blocked. Select the message text instead.")); }));
   v.querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => markSent(a.dataset.wa, a.dataset.stage, true)));
   v.querySelectorAll("[data-sent]").forEach(b => b.addEventListener("click", () => markSent(b.dataset.sent, b.dataset.stage, false)));
+  v.querySelectorAll("[data-close-pol]").forEach(b => b.addEventListener("click", () => setClosed(b.dataset.closePol, true)));
   const qi = $("#q"); if (qi) qi.addEventListener("input", () => { q = qi.value; searchSoon(); });
   v.querySelectorAll("[data-client]").forEach(el => { el.addEventListener("click", () => openClient(el.dataset.client)); el.addEventListener("keydown", e => { if (e.key === "Enter") openClient(el.dataset.client); }); });
   const ci = $("#cq"); if (ci) ci.addEventListener("input", () => { cq = ci.value; searchSoon(); });
@@ -403,7 +412,7 @@ function drawDetail(id) {
     '<label>Date<input id="payDate" type="date" value="' + todayStr() + '" required></label>' +
     '<label>Method<select id="payMethod">' + METHODS.map(m => '<option>' + m + '</option>').join("") + '</select></label>' +
     '<button class="btn primary" type="submit">Add payment</button></form>' +
-    '<div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button><button class="btn" type="button" id="renewBtn">Renew</button><button class="btn primary" type="button" id="editBtn">Edit</button></div>' +
+    '<div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button>' + (p.closed ? '<button class="btn" type="button" id="reopenBtn">Undo not renewing</button>' : !p.renewedTo && p.line !== "travel" ? '<button class="btn" type="button" id="notRenBtn">Not renewing</button>' : '') + '<button class="btn" type="button" id="renewBtn">Renew</button><button class="btn primary" type="button" id="editBtn">Edit</button></div>' +
     (confirmDel ? '<div class="confirm">Delete this policy and its payments for good?<button class="btn small danger" type="button" id="delYes">Yes, delete</button><button class="btn small" type="button" id="delNo">Keep it</button></div>' : '') +
     '</div></div>';
   $("#modal").innerHTML = h; bindModalClose();
@@ -419,9 +428,11 @@ function drawDetail(id) {
   }));
   $("#modal").querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => { if (a.dataset.stage) markSent(a.dataset.wa, a.dataset.stage, true); }));
   $("#editBtn").addEventListener("click", () => openForm(p));
+  if ($("#notRenBtn")) $("#notRenBtn").addEventListener("click", () => setClosed(p.id, true));
+  if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
   $("#renewBtn").addEventListener("click", () => {
     const start = p.expiry || todayStr();
-    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, ...rest } = p;
+    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, closed, closedAt, ...rest } = p;
     openForm({ ...rest, inception: start, expiry: addYear(start), _renewFrom: p.id });
   });
   $("#delBtn").addEventListener("click", () => { confirmDel = true; drawDetail(p.id); });
