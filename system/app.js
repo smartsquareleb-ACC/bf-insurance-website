@@ -169,6 +169,18 @@ function remHTML(p) {
     '<button class="btn small" type="button" data-sent="' + esc(p.id) + '" data-stage="' + st + '">Mark sent</button></div>' +
     '<div class="msg" dir="' + (l === "ar" ? "rtl" : "ltr") + '">' + esc(msg) + '</div></div>';
 }
+// Reminder buttons on the policy screen: shown from 30 days before expiry, or any time on request.
+function remBox(p) {
+  if (p.renewedTo) return "";
+  const n = daysUntil(p.expiry); if (n === null || n < -60) return "";
+  const t = target(p), wn = waNumber(t.phone), st = reminderStage(p) || "";
+  if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Renewal reminder</h3><p class="sub">Add a phone number (Edit) to send the WhatsApp reminder.</p></div>';
+  const link = l => "https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(message(p, l));
+  return '<div class="rembox"><h3 style="margin-top:4px">Renewal reminder</h3>' +
+    '<p class="sub">Opens WhatsApp with the message ready' + (t.sub ? ' for ' + esc(t.name) : '') + '. Check it and press send.</p>' +
+    '<div class="acts"><a class="btn wa small" href="' + esc(link("ar")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp عربي</a>' +
+    '<a class="btn wa small" href="' + esc(link("en")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp English</a></div></div>';
+}
 async function markSent(id, stage, viaWa) {
   const p = byId(id); if (!p || !stage) return;
   const r = Object.assign({}, p.reminders || {}); r[stage] = todayStr(); if (stage === "d15" && !r.d30) r.d30 = r.d15;
@@ -278,6 +290,7 @@ function drawDetail(id) {
     dd("Reminders", "30 days: " + (r.d30 ? esc(fmtDate(r.d30)) : "not sent") + "<br>15 days: " + (r.d15 ? esc(fmtDate(r.d15)) : "not sent")) +
     (p.notes ? '<div style="grid-column:1/-1"><dt>Notes</dt><dd style="white-space:pre-wrap;font-weight:400">' + esc(p.notes) + '</dd></div>' : '') + '</dl>' +
     '<div class="bal"><div><span>Price</span><b>' + money(p.price) + '</b></div><div><span>Paid</span><b style="color:var(--ok)">' + money(pd) + '</b></div><div><span>Remaining</span><b style="color:' + (b > 0 ? 'var(--bad)' : 'inherit') + '">' + money(b) + '</b></div></div>' +
+    remBox(p) +
     '<h3 style="margin-top:4px">Payments</h3>' +
     (pays.length ? pays.map((x, i) => '<div class="pay"><span>' + esc(fmtDate(x.date)) + ' · ' + esc(x.method || "") + '</span><span style="display:flex;gap:10px;align-items:center"><b>' + money(x.amount) + '</b><button class="btn small danger" type="button" data-delpay="' + esc(x.id || String(i)) + '">Remove</button></span></div>').join("") : '<p class="sub">No payments yet.</p>') +
     '<form class="payform" id="payForm"><label>Amount ($)<input id="payAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (b > 0 ? b : "") + '" required></label>' +
@@ -298,6 +311,7 @@ function drawDetail(id) {
     const list = (p.payments || []).filter((x, i) => (x.id || String(i)) !== btn.dataset.delpay);
     try { await store.update("policies", p.id, { payments: list }); toast("Payment removed"); } catch (err) { toast("Could not remove it. Try again."); }
   }));
+  $("#modal").querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => { if (a.dataset.stage) markSent(a.dataset.wa, a.dataset.stage, true); }));
   $("#editBtn").addEventListener("click", () => openForm(p));
   $("#renewBtn").addEventListener("click", () => {
     const start = p.expiry || todayStr();
@@ -344,7 +358,9 @@ function openForm(p) {
     '<fieldset><legend>Client</legend><div class="grid">' +
       '<label>First name<input id="f_first" required value="' + esc(d0.firstName) + '" autocomplete="off"></label>' +
       '<label>Family name<input id="f_last" value="' + esc(d0.lastName) + '" autocomplete="off"></label>' +
-      '<label class="full" id="phoneWrap"><span id="phoneLabel">Phone (WhatsApp)</span><input id="f_phone" type="tel" inputmode="tel" placeholder="03 123 456" value="' + esc(d0.phone) + '"></label>' +
+      '<label class="full" id="phoneWrap"><span id="phoneLabel">Phone (WhatsApp)</span><span class="phonerow"><input id="f_phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="03 123 456" value="' + esc(d0.phone) + '">' +
+        ('contacts' in navigator && 'select' in navigator.contacts ? '<button class="btn small" type="button" id="pickContact">Contacts</button>' : '') +
+        (navigator.clipboard && navigator.clipboard.readText ? '<button class="btn small" type="button" id="pastePhone">Paste</button>' : '') + '</span></label>' +
     '</div></fieldset>' +
     '<fieldset><legend>Policy</legend><div class="grid">' +
       '<label class="full">Insurance<select id="f_line">' + lineSel + '</select></label>' +
@@ -409,6 +425,20 @@ function openForm(p) {
     e.target.value = "";
     const keep = snapshotForm();
     openSubForm(null, newId => { openForm(Object.assign(keep, { viaSub: true, subId: newId })); });
+  });
+  const cleanPhone = t => { const m = String(t || "").match(/\+?[\d][\d\s\-().]{5,}\d/); return m ? m[0].replace(/[\s\-().]/g, "") : ""; };
+  if ($("#pickContact")) $("#pickContact").addEventListener("click", async () => {
+    try {
+      const [c] = await navigator.contacts.select(["name", "tel"], { multiple: false });
+      if (!c) return;
+      const tel = cleanPhone((c.tel || [])[0]); if (tel) $("#f_phone").value = tel; else toast("That contact has no phone number");
+      const nm = String((c.name || [])[0] || "").trim().split(/\s+/);
+      if (nm[0] && !$("#f_first").value.trim()) { $("#f_first").value = nm[0]; if (!$("#f_last").value.trim()) $("#f_last").value = nm.slice(1).join(" "); }
+    } catch (e) { toast("Could not open contacts"); }
+  });
+  if ($("#pastePhone")) $("#pastePhone").addEventListener("click", async () => {
+    try { const tel = cleanPhone(await navigator.clipboard.readText()); if (tel) $("#f_phone").value = tel; else toast("No phone number copied"); }
+    catch (e) { toast("Allow paste, or long-press the box and choose Paste"); }
   });
   ["#f_price", "#f_cost"].forEach(s => $(s).addEventListener("input", () => { priceTouched = true; refresh(); }));
   $("#f_subComm").addEventListener("input", refresh);
