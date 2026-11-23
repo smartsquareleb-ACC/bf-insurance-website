@@ -97,7 +97,7 @@ function message(p, l) {
       "حبّينا نذكّرك إنّو " + what + " " + when + ".\n\n" +
       priceLine + pay +
       (towing ? "🚗 ومعك البلاطة إذا صار حادث أو تعطّلت السيارة\n" : "") + "\n" +
-      "إذا بتحب نجدّدلك، أكّدلنا please 🙏\n\n" +
+      "إذا بتحب نجدّدلك، أكّدلنا لو سمحت 🙏\n\n" +
       "BF Insurance · تأمينك عَ أصولو";
   }
   const when = n < 0 ? "expired on " + fmtDate(p.expiry) : n === 0 ? "expires today, " + fmtDate(p.expiry) : n === 1 ? "expires tomorrow, " + fmtDate(p.expiry) : "expires on " + fmtDate(p.expiry) + " (in " + n + " days)";
@@ -144,6 +144,8 @@ function render() {
   const v = $("#view");
   const banner = store.mode === "local" ? '<div class="notice">Test mode: data is saved on this device only. It moves online once Firebase is connected.</div>' : "";
   if (!loaded.policies) { v.innerHTML = banner + (loadError ? '<div class="notice">' + esc(loadError) + '</div>' : '<p class="sub">Loading your policies…</p>'); return; }
+  const ae = document.activeElement;
+  if (ae && (ae.id === "q" || ae.id === "cq") && v.contains(ae) && (tab === "policies" || tab === "clients")) { refreshResults(); return; }
   v.innerHTML = banner + (tab === "overview" ? overview() : tab === "reminders" ? reminders() : tab === "subbrokers" ? subView() : tab === "clients" ? clientsView() : policyList());
   bindView();
 }
@@ -334,6 +336,23 @@ function openClient(k) {
   });
 }
 
+/* Search: update only the results list, never the box being typed in (full re-render made typing lag on iPhone). */
+let searchTimer = null;
+function searchSoon() { clearTimeout(searchTimer); searchTimer = setTimeout(refreshResults, 180); }
+function refreshResults() {
+  const v = $("#view"); if (!v) return;
+  const t = document.createElement("div");
+  t.innerHTML = tab === "clients" ? clientsView() : policyList();
+  const nl = t.querySelector(".list"), ol = v.querySelector(".list"), ns = t.querySelector(".headrow .sub"), os = v.querySelector(".headrow .sub");
+  if (!nl || !ol) return;
+  ol.replaceWith(nl); if (ns && os) os.innerHTML = ns.innerHTML;
+  bindRows(nl);
+}
+function bindRows(root) {
+  root.querySelectorAll("[data-open]").forEach(el => { el.addEventListener("click", () => openDetail(el.dataset.open)); el.addEventListener("keydown", e => { if (e.key === "Enter") openDetail(el.dataset.open); }); });
+  root.querySelectorAll("[data-client]").forEach(el => { el.addEventListener("click", () => openClient(el.dataset.client)); el.addEventListener("keydown", e => { if (e.key === "Enter") openClient(el.dataset.client); }); });
+}
+
 function bindView() {
   const v = $("#view");
   v.querySelectorAll("[data-open]").forEach(el => { el.addEventListener("click", () => openDetail(el.dataset.open)); el.addEventListener("keydown", e => { if (e.key === "Enter") openDetail(el.dataset.open); }); });
@@ -343,9 +362,9 @@ function bindView() {
   v.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => { const p = byId(b.dataset.copy); navigator.clipboard.writeText(message(p, lang[p.id] || "ar")).then(() => toast("Message copied"), () => toast("Copy blocked. Select the message text instead.")); }));
   v.querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => markSent(a.dataset.wa, a.dataset.stage, true)));
   v.querySelectorAll("[data-sent]").forEach(b => b.addEventListener("click", () => markSent(b.dataset.sent, b.dataset.stage, false)));
-  const qi = $("#q"); if (qi) qi.addEventListener("input", () => { q = qi.value; const pos = qi.selectionStart; render(); const n = $("#q"); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} });
+  const qi = $("#q"); if (qi) qi.addEventListener("input", () => { q = qi.value; searchSoon(); });
   v.querySelectorAll("[data-client]").forEach(el => { el.addEventListener("click", () => openClient(el.dataset.client)); el.addEventListener("keydown", e => { if (e.key === "Enter") openClient(el.dataset.client); }); });
-  const ci = $("#cq"); if (ci) ci.addEventListener("input", () => { cq = ci.value; const pos = ci.selectionStart; render(); const n = $("#cq"); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} });
+  const ci = $("#cq"); if (ci) ci.addEventListener("input", () => { cq = ci.value; searchSoon(); });
   const fl = $("#fLine"); if (fl) fl.addEventListener("change", () => { fLine = fl.value; render(); });
   const fs = $("#fStatus"); if (fs) fs.addEventListener("change", () => { fStatus = fs.value; render(); });
   const ex = $("#exportBtn"); if (ex) ex.addEventListener("click", exportCSV);
