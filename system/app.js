@@ -358,7 +358,9 @@ function openForm(p) {
     '<fieldset><legend>Client</legend><div class="grid">' +
       '<label>First name<input id="f_first" required value="' + esc(d0.firstName) + '" autocomplete="off"></label>' +
       '<label>Family name<input id="f_last" value="' + esc(d0.lastName) + '" autocomplete="off"></label>' +
-      '<label class="full" id="phoneWrap"><span id="phoneLabel">Phone (WhatsApp)</span><input id="f_phone" type="tel" inputmode="tel" placeholder="03 123 456" value="' + esc(d0.phone) + '"></label>' +
+      '<label class="full" id="phoneWrap"><span id="phoneLabel">Phone (WhatsApp)</span><span class="phonerow"><input id="f_phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="03 123 456" value="' + esc(d0.phone) + '">' +
+        ('contacts' in navigator && 'select' in navigator.contacts ? '<button class="btn small" type="button" id="pickContact">Contacts</button>' : '') +
+        (navigator.clipboard && navigator.clipboard.readText ? '<button class="btn small" type="button" id="pastePhone">Paste</button>' : '') + '</span></label>' +
     '</div></fieldset>' +
     '<fieldset><legend>Policy</legend><div class="grid">' +
       '<label class="full">Insurance<select id="f_line">' + lineSel + '</select></label>' +
@@ -423,6 +425,20 @@ function openForm(p) {
     e.target.value = "";
     const keep = snapshotForm();
     openSubForm(null, newId => { openForm(Object.assign(keep, { viaSub: true, subId: newId })); });
+  });
+  const cleanPhone = t => { const m = String(t || "").match(/\+?[\d][\d\s\-().]{5,}\d/); return m ? m[0].replace(/[\s\-().]/g, "") : ""; };
+  if ($("#pickContact")) $("#pickContact").addEventListener("click", async () => {
+    try {
+      const [c] = await navigator.contacts.select(["name", "tel"], { multiple: false });
+      if (!c) return;
+      const tel = cleanPhone((c.tel || [])[0]); if (tel) $("#f_phone").value = tel; else toast("That contact has no phone number");
+      const nm = String((c.name || [])[0] || "").trim().split(/\s+/);
+      if (nm[0] && !$("#f_first").value.trim()) { $("#f_first").value = nm[0]; if (!$("#f_last").value.trim()) $("#f_last").value = nm.slice(1).join(" "); }
+    } catch (e) { toast("Could not open contacts"); }
+  });
+  if ($("#pastePhone")) $("#pastePhone").addEventListener("click", async () => {
+    try { const tel = cleanPhone(await navigator.clipboard.readText()); if (tel) $("#f_phone").value = tel; else toast("No phone number copied"); }
+    catch (e) { toast("Allow paste, or long-press the box and choose Paste"); }
   });
   ["#f_price", "#f_cost"].forEach(s => $(s).addEventListener("input", () => { priceTouched = true; refresh(); }));
   $("#f_subComm").addEventListener("input", refresh);
