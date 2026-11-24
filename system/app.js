@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=11";
-import * as store from "./store.js?v=11";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=12";
+import * as store from "./store.js?v=12";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -84,14 +84,22 @@ const target = p => { if (p.viaSub) { const s = subOf(p.subId); return { name: s
 
 // Renewal price shown in the reminder: today's portal price when the line has a fixed price, else last price.
 // You can type your own renewal price on a policy (e.g. a bigger bundle); it wins over the list price.
-function renewPrice(p) {
-  if (num(p.renewPrice) > 0) return num(p.renewPrice);
-  const sg = suggest(p.line, p.details || {});
+// Renewal option (bundle / cover / plan) can be changed for the renewal only; the list price follows it.
+const RENEW_OPTS = { motor_tpl: ["cover", "md"], worker: ["plan"] };
+const renewDet = p => ({ ...(p.details || {}), ...(p.renewDetails || {}) });
+function renewList(p) {
+  const sg = suggest(p.line, renewDet(p));
   const v = sg && sg.price ? sg.price : num(p.price);
   return v > 0 ? v : 0;
 }
+function renewPrice(p) {
+  if (num(p.renewPrice) > 0) return num(p.renewPrice);
+  return renewList(p);
+}
+const renewDisc = p => Math.min(num(p.renewDiscount), renewPrice(p));
+const renewPay = p => Math.max(0, renewPrice(p) - renewDisc(p));
 function lineName(p, l) {
-  const L = lineOf(p.line), d = p.details || {}, ar = l === "ar";
+  const L = lineOf(p.line), d = renewDet(p), ar = l === "ar";
   if (p.line === "motor_tpl") {
     if (d.cover === "Elzeme only") return ar ? "التأمين الإلزامي" : "compulsory insurance (Elzeme)";
     if (d.cover === "Dod l gheir only") return ar ? "تأمين ضد الغير" : "third-party insurance (Dod l gheir)";
@@ -104,11 +112,11 @@ function lineName(p, l) {
 function message(p, l) {
   const t = target(p), n = daysUntil(p.expiry), ar = l === "ar";
   const plate = isMotor(p) && p.plate ? p.plate : "";
-  const price = renewPrice(p), towing = p.line === "motor_tpl" && (p.details || {}).cover !== "Elzeme only";
+  const price = renewPrice(p), disc = renewDisc(p), towing = p.line === "motor_tpl" && renewDet(p).cover !== "Elzeme only";
   const what = lineName(p, l) + (plate ? (ar ? " للسيارة رقم " : " for plate ") + plate : "");
   if (ar) {
     const when = n < 0 ? "خلص بتاريخ " + fmtDate(p.expiry) : n === 0 ? "بيخلص اليوم " + fmtDate(p.expiry) : n === 1 ? "بيخلص بكرا " + fmtDate(p.expiry) : "بيخلص بتاريخ " + fmtDate(p.expiry) + " (بعد " + (n === 2 ? "يومين" : n + " يوم") + ")";
-    const priceLine = price ? "💵 سعر التجديد: $" + price + "\n" : "";
+    const priceLine = !price ? "" : disc > 0 ? "💵 سعر التجديد: $" + price + "\n🎁 حسم: $" + disc + "\n✅ بتدفع: $" + renewPay(p) + "\n" : "💵 سعر التجديد: $" + price + "\n";
     const pay = "💳 الدفع كاش، Whish أو OMT\n";
     if (t.sub) return "مرحبا " + t.name + " 👋\n" +
       "تذكير من BF Insurance 🛡️\n\n" +
@@ -124,7 +132,7 @@ function message(p, l) {
       "BF Insurance · تأمينك عَ أصولو";
   }
   const when = n < 0 ? "expired on " + fmtDate(p.expiry) : n === 0 ? "expires today, " + fmtDate(p.expiry) : n === 1 ? "expires tomorrow, " + fmtDate(p.expiry) : "expires on " + fmtDate(p.expiry) + " (in " + n + " days)";
-  const priceLine = price ? "💵 Renewal price: $" + price + "\n" : "";
+  const priceLine = !price ? "" : disc > 0 ? "💵 Renewal price: $" + price + "\n🎁 Discount: -$" + disc + "\n✅ You pay: $" + renewPay(p) + "\n" : "💵 Renewal price: $" + price + "\n";
   if (t.sub) return "Hello " + t.name + " 👋\n" +
     "A reminder from BF Insurance 🛡️\n\n" +
     "Your client " + fullName(p) + ": " + what + " " + when + ".\n" +
@@ -234,16 +242,29 @@ function remHTML(p) {
     '<div class="msg" dir="' + (l === "ar" ? "rtl" : "ltr") + '">' + esc(msg) + '</div></div>';
 }
 function rpRow(p) {
-  const own = num(p.renewPrice) > 0;
-  return '<label class="rprow">Renewal price ($)<input type="number" min="0" step="0.01" inputmode="decimal" data-rp="' + esc(p.id) + '" value="' + renewPrice(p) + '"></label>' +
-    '<small class="rpnote">' + (own ? 'Your price. <button type="button" class="linkbtn" data-rpreset="' + esc(p.id) + '">Use list price</button>' : 'List price. Type a new price to change it in the message.') + '</small>';
+  const own = num(p.renewPrice) > 0, d = renewDet(p), id = esc(p.id);
+  const opts = (RENEW_OPTS[p.line] || []).map(k => lineOf(p.line).fields.find(f => f.id === k)).filter(f => f && (!f.show || f.show(d)))
+    .map(f => '<label class="rprow opt">' + esc(f.id === "md" ? "Bundle" : f.label) + '<select data-ro="' + id + '" data-k="' + esc(f.id) + '">' +
+      f.opts.map(o => '<option' + ((d[f.id] || f.opts[0]) === o ? ' selected' : '') + '>' + esc(o) + '</option>').join("") + '</select></label>').join("");
+  return '<div class="rpbox">' + opts +
+    '<label class="rprow">Renewal price ($)<input type="number" min="0" step="0.01" inputmode="decimal" data-rp="' + id + '" value="' + renewPrice(p) + '"></label>' +
+    '<label class="rprow">Discount ($)<input type="number" min="0" step="0.01" inputmode="decimal" data-rd="' + id + '" value="' + (num(p.renewDiscount) > 0 ? num(p.renewDiscount) : "") + '" placeholder="0"></label>' +
+    '<small class="rpnote">' + (own ? 'Your price. <button type="button" class="linkbtn" data-rpreset="' + id + '">Use list price ($' + renewList(p) + ')</button>' : (opts ? 'Price follows the option. You can still type your own.' : 'List price. Type a new price to change it in the message.')) +
+    (renewDisc(p) > 0 ? ' Client pays <b>$' + renewPay(p) + '</b>.' : '') + '</small></div>';
 }
-async function saveRenewPrice(id, v) {
-  try { await store.update("policies", id, { renewPrice: v > 0 ? v : null }); toast(v > 0 ? "Renewal price saved" : "Back to list price"); } catch (e) { toast("Could not save. Try again."); }
+async function saveRenew(id, data, msg) {
+  try { await store.update("policies", id, data); toast(msg); } catch (e) { toast("Could not save. Try again."); }
 }
+const saveRenewPrice = (id, v) => saveRenew(id, { renewPrice: v > 0 ? v : null }, v > 0 ? "Renewal price saved" : "Back to list price");
 function bindRp(root) {
   root.querySelectorAll("[data-rp]").forEach(i => i.addEventListener("change", () => { const p = byId(i.dataset.rp); const v = num(i.value); if (p && v !== renewPrice(p)) saveRenewPrice(p.id, v); }));
   root.querySelectorAll("[data-rpreset]").forEach(b => b.addEventListener("click", () => saveRenewPrice(b.dataset.rpreset, 0)));
+  root.querySelectorAll("[data-rd]").forEach(i => i.addEventListener("change", () => { const v = num(i.value); saveRenew(i.dataset.rd, { renewDiscount: v > 0 ? v : null }, v > 0 ? "Discount saved" : "Discount removed"); }));
+  root.querySelectorAll("[data-ro]").forEach(sel => sel.addEventListener("change", () => {
+    const p = byId(sel.dataset.ro); if (!p) return;
+    const rd = { ...(p.renewDetails || {}), [sel.dataset.k]: sel.value };
+    saveRenew(p.id, { renewDetails: rd, renewPrice: null }, "Option changed. Price updated.");
+  }));
 }
 // Reminder buttons on the policy screen: shown from 30 days before expiry, or any time on request.
 function remBox(p) {
@@ -481,8 +502,11 @@ function drawDetail(id) {
   if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
   $("#renewBtn").addEventListener("click", () => {
     const start = p.expiry || todayStr();
-    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, closed, closedAt, plan, discount, ...rest } = p;
-    openForm({ ...rest, inception: start, expiry: addYear(start), _renewFrom: p.id });
+    const { id, payments, reminders, renewedTo, renewedFrom, createdAt, policyNo, closed, closedAt, plan, discount, renewPrice: rp, renewDetails, renewDiscount, ...rest } = p;
+    const nd = renewDisc(p), sg = suggest(p.line, renewDet(p)), own = num(p.renewPrice) > 0;
+    const price = own ? num(p.renewPrice) : sg && sg.price ? sg.price : rest.price;
+    const cost = sg && sg.comm != null ? +(sg.price - sg.comm).toFixed(2) : rest.cost;
+    openForm({ ...rest, details: renewDet(p), price, cost, discount: nd > 0 ? nd : undefined, inception: start, expiry: addYear(start), _renewFrom: p.id });
   });
   $("#delBtn").addEventListener("click", () => { confirmDel = true; drawDetail(p.id); });
   if (confirmDel) {
