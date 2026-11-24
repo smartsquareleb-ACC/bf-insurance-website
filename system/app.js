@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=14";
-import * as store from "./store.js?v=14";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=15";
+import * as store from "./store.js?v=15";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -406,7 +406,7 @@ function openClient(k, keep) {
   bindModalClose();
   if (kept) { $("#c_first").value = kept.first; $("#c_last").value = kept.last; $("#c_phone").value = kept.phone; }
   $("#modal").querySelectorAll("[data-open]").forEach(el => el.addEventListener("click", () => openDetail(el.dataset.open)));
-  bindPayLang(() => openClient(k, true));
+  bindPayLang(() => openClient(k, true)); bindStatement(c.ps);
   const cpSum = () => r2(c.ps.filter(p => { const b = $('[data-cp="' + p.id + '"]'); return b && b.checked; }).reduce((a, p) => a + nextDue(p, balance(p)), 0));
   $("#modal").querySelectorAll("[data-cp]").forEach(b => b.addEventListener("change", () => { $("#cpAmt").value = cpSum() || ""; }));
   if ($("#cpForm")) $("#cpForm").addEventListener("submit", async e => {
@@ -524,8 +524,8 @@ function payMsg(kind, ps, l) {
     } else body = (ar ? "تذكير بالمبالغ الباقية:\n" : "A reminder about the amounts left to pay:\n") + list + tot + "\n" + how;
   } else if (kind === "balance") {
     const pd = r2(ps.reduce((a, p) => a + (p.supplier === "whish" ? 0 : paid(p)), 0));
-    body = (ar ? "حبّينا نخبرك بالمبلغ الباقي:\n" : "Here is your balance left:\n") + list + tot +
-      (pd > 0 ? (ar ? "✅ المدفوع لهلّق: $" : "✅ Paid so far: $") + pd + "\n" : "") + nextLine + "\n" + how;
+    body = one ? (ar ? "حبّينا نخبرك إنّو الباقي عن " + payWhat(p0, l) + ": $" + bal + "\n\n" : "Your balance left for your " + payWhat(p0, l) + " is $" + bal + "\n\n") + how
+      : (ar ? "حبّينا نخبرك بالمبلغ الباقي:\n" : "Here is your balance left:\n") + list + tot + "\n" + how;
   } else {
     const lp = lastPayment(ps) || { amount: 0, date: todayStr() };
     body = (ar ? "وصلتنا دفعتك $" + lp.amount + " بتاريخ " + fmtDate(lp.date) + (one ? " عن " + payWhat(p0, l) : "") + " ✅\n"
@@ -542,12 +542,78 @@ function payMsgBox(ps) {
   const bal = ps.reduce((a, p) => a + balance(p), 0), hasPay = ps.some(p => (p.payments || []).length);
   if (!(bal > 0) && !hasPay) return "";
   const phone = (ps.find(p => p.phone) || {}).phone || "", wn = waNumber(phone);
-  if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3><p class="sub">Add the client\'s phone number to send payment messages.</p></div>';
+  if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3><p class="sub">Add the client\'s phone number to send payment messages.</p><div class="acts"><button class="btn small" type="button" id="stmtBtn">Statement PDF</button></div></div>';
   const a = (kind, label) => '<a class="btn wa small" target="_blank" rel="noopener" href="' + esc("https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(payMsg(kind, ps, payLang))) + '">' + label + '</a>';
   return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3>' +
     '<div class="acts"><span class="seg" role="group" aria-label="Message language"><button type="button" data-paylang="ar" aria-pressed="' + (payLang === "ar") + '">عربي</button><button type="button" data-paylang="en" aria-pressed="' + (payLang === "en") + '">English</button></span>' +
-    (bal > 0 ? a("remind", "Payment reminder") : "") + (hasPay ? a("paid", bal > 0 ? "Payment received" : "Paid in full") : "") + (bal > 0 ? a("balance", "Balance left") : "") + '</div>' +
+    (bal > 0 ? a("remind", "Payment reminder") : "") + (hasPay ? a("paid", bal > 0 ? "Payment received" : "Paid in full") : "") + (bal > 0 ? a("balance", "Balance left") : "") +
+    '<button class="btn small" type="button" id="stmtBtn">Statement PDF</button></div>' +
     '<p class="sub">' + (bal > 0 ? 'Balance left ' + money(bal) + '. ' : 'Fully paid. ') + '"' + (bal > 0 ? 'Payment received' : 'Paid in full') + '" uses the last payment you added.</p></div>';
+}
+
+/* ---------- statement of account (PDF) ---------- */
+function statementHTML(ps) {
+  ps = ps.filter(p => p.supplier !== "whish").slice().sort((a, b) => String(b.inception || "").localeCompare(String(a.inception || "")));
+  const p0 = ps[0], today = todayStr();
+  const td = 'style="padding:6px 8px;border-bottom:1px solid #e4e7ec"', th = 'style="padding:6px 8px;text-align:left;font-weight:600;color:#475467;border-bottom:1px solid #d0d5dd"';
+  const tdr = 'style="padding:6px 8px;border-bottom:1px solid #e4e7ec;text-align:right"';
+  let gT = 0, gP = 0;
+  const blocks = ps.map(p => {
+    const T = total(p), P = paid(p), B = balance(p), st = planStatus(p); gT += T; gP += Math.min(P, T);
+    const pays = (p.payments || []).slice().sort((a, c) => String(a.date).localeCompare(String(c.date)));
+    return '<div style="margin:18px 0 0;page-break-inside:avoid">' +
+      '<div style="font-size:15px;font-weight:600;color:#1a3aa6">' + esc(payWhat(p, "en").replace(/^./, c => c.toUpperCase())) + '</div>' +
+      '<div style="color:#475467;font-size:12px">' + (p.policyNo ? 'Policy no. ' + esc(p.policyNo) + ' · ' : '') + 'From ' + esc(fmtDate(p.inception)) + ' to ' + esc(fmtDate(p.expiry)) + '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px">' +
+      '<tr><td ' + td + '>Premium</td><td ' + tdr + '>' + money(p.price) + '</td></tr>' +
+      (num(p.discount) > 0 ? '<tr><td ' + td + '>Discount</td><td ' + tdr + '>−' + money(p.discount) + '</td></tr>' : '') +
+      '<tr><td ' + td + '><b>Total</b></td><td ' + tdr + '><b>' + money(T) + '</b></td></tr></table>' +
+      (st ? '<div style="margin-top:10px;font-weight:600;font-size:12.5px">Instalments</div><table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th ' + th + '>Instalment</th><th ' + th + '>Due date</th><th ' + th + ' style="text-align:right;padding:6px 8px;font-weight:600;color:#475467;border-bottom:1px solid #d0d5dd">Amount</th><th ' + th + '>Status</th></tr>' +
+        st.map((x, i) => '<tr><td ' + td + '>' + (i === 0 ? 'First payment' : 'Payment ' + (i + 1)) + '</td><td ' + td + '>' + esc(fmtDate(x.due)) + '</td><td ' + tdr + '>' + money(x.amount) + '</td><td ' + td + '><span style="color:' + (x.paid ? '#067647' : x.due < today ? '#b42318' : '#475467') + '">' + (x.paid ? 'Paid' : x.due < today ? 'Overdue' : 'Due') + '</span></td></tr>').join("") + '</table>' : '') +
+      '<div style="margin-top:10px;font-weight:600;font-size:12.5px">Payments received</div>' +
+      (pays.length ? '<table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr><th ' + th + '>Date</th><th ' + th + '>Method</th><th style="text-align:right;padding:6px 8px;font-weight:600;color:#475467;border-bottom:1px solid #d0d5dd">Amount</th></tr>' +
+        pays.map(x => '<tr><td ' + td + '>' + esc(fmtDate(x.date)) + '</td><td ' + td + '>' + esc(x.method === "Other" ? "Paid" : x.method || "") + '</td><td ' + tdr + '>' + money(x.amount) + '</td></tr>').join("") + '</table>' : '<div style="color:#667085;font-size:12.5px">No payments yet.</div>') +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px"><tr><td style="padding:6px 8px">Paid</td><td style="padding:6px 8px;text-align:right;color:#067647">' + money(Math.min(P, T)) + '</td></tr>' +
+      '<tr><td style="padding:6px 8px"><b>Balance left</b></td><td style="padding:6px 8px;text-align:right;color:' + (B > 0 ? '#b42318' : '#067647') + '"><b>' + money(B) + '</b></td></tr></table></div>';
+  }).join('<div style="border-top:2px solid #eef2fb;margin-top:14px"></div>');
+  const gB = r2(gT - gP);
+  return '<div style="width:740px;padding:34px 38px;background:#fff;color:#101828;font-family:\'Readex Pro\',Arial,sans-serif;line-height:1.45">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #1a3aa6;padding-bottom:14px">' +
+      '<div style="display:flex;align-items:center;gap:12px"><img src="icon-192.png" style="width:54px;height:54px;border-radius:12px"><div><div style="font-size:20px;font-weight:700;color:#1a3aa6">BF Insurance</div><div style="font-size:11px;color:#475467;letter-spacing:.06em">PROTECTION, DONE PROPERLY</div></div></div>' +
+      '<div style="text-align:right"><div style="font-size:18px;font-weight:600">Statement of account</div><div style="font-size:12px;color:#475467">Date: ' + esc(fmtDate(today)) + '</div></div></div>' +
+    '<div style="margin-top:14px;font-size:13px"><div style="color:#475467">Client</div><div style="font-size:16px;font-weight:600">' + esc(fullName(p0)) + '</div>' + (p0.phone ? '<div style="color:#475467">' + esc(p0.phone) + '</div>' : '') + '</div>' +
+    (ps.length > 1 ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;background:#f5f7fd;border-radius:8px"><tr><td style="padding:8px 10px">Total of ' + ps.length + ' policies</td><td style="padding:8px 10px;text-align:right">' + money(gT) + '</td></tr><tr><td style="padding:8px 10px">Paid</td><td style="padding:8px 10px;text-align:right;color:#067647">' + money(gP) + '</td></tr><tr><td style="padding:8px 10px"><b>Balance left</b></td><td style="padding:8px 10px;text-align:right;color:' + (gB > 0 ? '#b42318' : '#067647') + '"><b>' + money(gB) + '</b></td></tr></table>' : '') +
+    blocks +
+    '<div style="margin-top:24px;padding-top:12px;border-top:1px solid #d0d5dd;font-size:11px;color:#475467">Payment by cash, Whish or OMT. WhatsApp 71 484 921 · bfinsurancelb.com<br>BF Insurance · Broker registration 6500 · Licence 37</div></div>';
+}
+let pdfLib = null;
+function loadPdfLib() {
+  if (window.html2pdf) return Promise.resolve();
+  if (!pdfLib) pdfLib = new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"; sc.onload = res; sc.onerror = () => { pdfLib = null; rej(new Error("load")); }; document.head.appendChild(sc); });
+  return pdfLib;
+}
+function bindStatement(ps) {
+  const b = $("#stmtBtn"); if (!b) return;
+  loadPdfLib().catch(() => {});
+  let file = null;
+  const give = async () => {
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: file.name }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  b.addEventListener("click", async () => {
+    if (file) { give(); return; }
+    b.disabled = true; b.textContent = "Making PDF…";
+    const box = document.createElement("div"); box.style.cssText = "position:absolute;left:0;top:0;z-index:-5;pointer-events:none"; box.innerHTML = statementHTML(ps); document.body.appendChild(box);
+    try {
+      await loadPdfLib();
+      const name = "Statement - " + (fullName(ps[0]) || "client").replace(/[^\w\s-]/g, "") + " - " + todayStr() + ".pdf";
+      const blob = await window.html2pdf().set({ margin: [6, 6, 8, 6], image: { type: "jpeg", quality: 0.96 }, html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0 }, jsPDF: { unit: "mm", format: "a4" }, pagebreak: { mode: ["css", "legacy"] } }).from(box.firstChild).outputPdf("blob");
+      file = new File([blob], name, { type: "application/pdf" });
+      b.disabled = false; b.textContent = "Send statement PDF";
+      await give();
+    } catch (e) { b.disabled = false; b.textContent = "Statement PDF"; toast("Could not make the PDF. Check your connection and try again."); }
+    finally { box.remove(); }
+  });
 }
 function bindPayLang(redraw) { $("#modal").querySelectorAll("[data-paylang]").forEach(b => b.addEventListener("click", () => { payLang = b.dataset.paylang; redraw(); })); }
 function planHTML(p) {
@@ -602,7 +668,7 @@ function drawDetail(id) {
   }));
   $("#modal").querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => { if (a.dataset.stage) markSent(a.dataset.wa, a.dataset.stage, true); }));
   bindRp($("#modal"));
-  bindPayLang(() => drawDetail(p.id));
+  bindPayLang(() => drawDetail(p.id)); bindStatement([p]);
   $("#editBtn").addEventListener("click", () => openForm(p));
   if ($("#notRenBtn")) $("#notRenBtn").addEventListener("click", () => setClosed(p.id, true));
   if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
