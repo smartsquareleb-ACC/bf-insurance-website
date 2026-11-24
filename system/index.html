@@ -116,7 +116,7 @@ dl div{min-width:0}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:
 .bal span{font-size:12px;color:var(--muted);display:block}.bal b{font-variant-numeric:tabular-nums;font-size:17px}
 .pay{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;align-items:center}
 .pay:first-child{border-top:0}
-.payform{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-top:10px}
+label.cpk{margin-top:6px}label.cpk span{flex:1}.payform{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-top:10px}
 @media (max-width:560px){.payform{grid-template-columns:1fr 1fr}}
 .confirm{background:var(--bad-soft);color:var(--bad);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 20px);background:var(--brand);color:#fff;padding:10px 16px;border-radius:10px;z-index:30;font-size:14px;max-width:calc(100% - 32px)}
@@ -133,7 +133,7 @@ dl div{min-width:0}dt{font-size:12px;color:var(--muted)}dd{margin:0;font-weight:
 <div id="app"><p class="wrap" style="padding-top:40px;color:var(--muted)">Loading…</p></div>
 <div id="modal"></div>
 <div class="toast" id="toast" hidden></div>
-<script type="module" src="app.js?v=12"></script>
+<script type="module" src="app.js?v=13"></script>
 <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(function(){});}</script>
 </body>
 </html>

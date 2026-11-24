@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=12";
-import * as store from "./store.js?v=12";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=13";
+import * as store from "./store.js?v=13";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -55,7 +55,7 @@ function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = fals
 /* ---------- state ---------- */
 let policies = [], subs = [], loaded = { policies: false, subbrokers: false }, loadError = "", user = null;
 let tab = ["overview", "reminders", "policies", "clients", "subbrokers"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
-let cq = "", monthOffset = 0, q = "", fLine = "", fStatus = "", currentDetail = null, confirmDel = false;
+let cq = "", monthOffset = 0, q = "", fLine = "", fStatus = "", currentDetail = null, currentClient = null, confirmDel = false, payLang = "ar";
 let lang = {}; try { lang = JSON.parse(localStorage.getItem("bf_lang") || "{}") || {}; } catch (e) {}
 const subOf = id => subs.find(s => s.id === id);
 const byId = id => policies.find(p => p.id === id);
@@ -266,10 +266,10 @@ function bindRp(root) {
     saveRenew(p.id, { renewDetails: rd, renewPrice: null }, "Option changed. Price updated.");
   }));
 }
-// Reminder buttons on the policy screen: shown from 30 days before expiry, or any time on request.
+// Reminder buttons on the policy screen: shown only from 30 days before expiry.
 function remBox(p) {
   if (p.renewedTo || p.closed || p.line === "travel") return "";
-  const n = daysUntil(p.expiry); if (n === null || n < -60) return "";
+  const n = daysUntil(p.expiry); if (n === null || n < -60 || n > 30) return "";
   const t = target(p), wn = waNumber(t.phone), st = reminderStage(p) || "";
   if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Renewal reminder</h3><p class="sub">Add a phone number (Edit) to send the WhatsApp reminder.</p></div>';
   const link = l => "https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(message(p, l));
@@ -374,8 +374,22 @@ function clientsView() {
     '<div><span class="pill ' + (c.next ? "ok" : "n") + '">' + (c.next ? "Active" : "Inactive") + '</span></div></div>').join("") : '<div class="empty">No client matches this search.</div>') + '</div>';
   return h;
 }
-function openClient(k) {
-  const c = clientGroups().find(x => x.k === k); if (!c) return;
+// Client payment: one amount split over the policies you tick, earliest due first.
+function clientPayHTML(c) {
+  const open = c.ps.filter(p => balance(p) > 0).sort((a, b) => String((nextInst(a) || {}).due || a.inception || "").localeCompare(String((nextInst(b) || {}).due || b.inception || "")));
+  if (!open.length) return "";
+  const due = r2(open.reduce((a, p) => a + nextDue(p, balance(p)), 0));
+  return '<h3>Add a payment</h3><p class="sub">Tick the policies this payment is for. It fills the earliest due first.</p>' +
+    open.map(p => '<label class="chk cpk"><input type="checkbox" data-cp="' + esc(p.id) + '" checked> <span>' + esc(lineOf(p.line).en) + (isMotor(p) && p.plate ? ' · ' + esc(p.plate) : '') + (p.policyNo ? ' · ' + esc(p.policyNo) : '') + '</span><b>owes ' + money(balance(p)) + '</b></label>').join("") +
+    '<form class="payform" id="cpForm"><label>Amount ($)<input id="cpAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (due || "") + '" required></label>' +
+    '<label>Date<input id="cpDate" type="date" value="' + todayStr() + '" required></label>' +
+    '<label>Method<select id="cpMethod">' + METHODS.map(m => '<option>' + m + '</option>').join("") + '</select></label>' +
+    '<button class="btn primary" type="submit">Add payment</button></form>';
+}
+function openClient(k, keep) {
+  const c = clientGroups().find(x => x.k === k); if (!c) { if (keep) closeModal(); return; }
+  currentClient = k; currentDetail = null;
+  const kept = keep && $("#c_first") ? { first: $("#c_first").value, last: $("#c_last").value, phone: $("#c_phone").value } : null;
   const f = c.ps[0], wn = waNumber(c.phone);
   $("#modal").innerHTML = '<div class="overlay" id="ov"><div class="sheet" role="dialog" aria-modal="true" aria-label="Client"><div class="sheet-head"><div><h2>' + esc(c.name) + '</h2><span class="pill n">' + c.ps.length + (c.ps.length === 1 ? ' policy' : ' policies') + '</span></div><button class="x" type="button" data-close aria-label="Close">×</button></div>' +
     '<form id="cf"><div class="grid"><label>First name<input id="c_first" value="' + esc(f.firstName) + '"></label><label>Family name<input id="c_last" value="' + esc(f.lastName) + '"></label>' +
@@ -384,9 +398,32 @@ function openClient(k) {
     (navigator.clipboard && navigator.clipboard.readText ? '<button class="btn small" type="button" id="c_paste">Paste</button>' : '') + '</span></label></div>' +
     '<p class="sub">Saving updates the name and phone on all ' + c.ps.length + ' of this client\'s policies.</p>' +
     '<div class="actions">' + (wn ? '<a class="btn wa" href="https://wa.me/' + esc(wn) + '" target="_blank" rel="noopener">WhatsApp chat</a>' : '') + '<button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>' +
+    clientPayHTML(c) + payMsgBox(c.ps) +
     '<h3>Policies</h3><div class="list">' + c.ps.slice().sort((a, b) => (b.expiry || "").localeCompare(a.expiry || "")).map(rowHTML).join("") + '</div></div></div>';
   bindModalClose();
+  if (kept) { $("#c_first").value = kept.first; $("#c_last").value = kept.last; $("#c_phone").value = kept.phone; }
   $("#modal").querySelectorAll("[data-open]").forEach(el => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  bindPayLang(() => openClient(k, true));
+  const cpSum = () => r2(c.ps.filter(p => { const b = $('[data-cp="' + p.id + '"]'); return b && b.checked; }).reduce((a, p) => a + nextDue(p, balance(p)), 0));
+  $("#modal").querySelectorAll("[data-cp]").forEach(b => b.addEventListener("change", () => { $("#cpAmt").value = cpSum() || ""; }));
+  if ($("#cpForm")) $("#cpForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    let amt = r2(num($("#cpAmt").value)); if (!(amt > 0)) { toast("Enter an amount above 0"); return; }
+    const picked = [...$("#modal").querySelectorAll("[data-cp]")].filter(b => b.checked).map(b => byId(b.dataset.cp)).filter(Boolean);
+    if (!picked.length) { toast("Tick at least one policy"); return; }
+    const owe = r2(picked.reduce((a, p) => a + balance(p), 0));
+    if (amt > owe + 0.005) { toast("That is more than these policies owe (" + money(owe) + ")"); return; }
+    const batch = "b" + Date.now(), date = $("#cpDate").value || todayStr(), method = $("#cpMethod").value, ups = [];
+    // first cover each policy's next due instalment in order, then the rest of their balances
+    const give = {};
+    for (const pass of [p => nextDue(p, balance(p)), p => balance(p)]) for (const p of picked) {
+      if (amt <= 0.005) break;
+      const room = r2(pass(p) - (give[p.id] || 0)); if (room <= 0) continue;
+      const x = r2(Math.min(room, amt)); give[p.id] = r2((give[p.id] || 0) + x); amt = r2(amt - x);
+    }
+    for (const p of picked) if (give[p.id] > 0) ups.push(store.update("policies", p.id, { payments: (p.payments || []).concat([{ id: "p" + Date.now() + p.id.slice(0, 4), amount: give[p.id], date, method, batch }]) }));
+    try { await Promise.all(ups); toast("Payment added to " + ups.length + (ups.length === 1 ? " policy" : " policies")); } catch (err) { toast("Could not save the payment. Try again."); }
+  });
   const clean = t => { const m = String(t || "").match(/\+?[\d][\d\s\-().]{5,}\d/); return m ? m[0].replace(/[\s\-().]/g, "") : ""; };
   if ($("#c_pick")) $("#c_pick").addEventListener("click", async () => { try { const [x] = await navigator.contacts.select(["tel"], { multiple: false }); const t = x && clean((x.tel || [])[0]); if (t) $("#c_phone").value = t; } catch (e) { toast("Could not open contacts"); } });
   if ($("#c_paste")) $("#c_paste").addEventListener("click", async () => { try { const t = clean(await navigator.clipboard.readText()); if (t) $("#c_phone").value = t; else toast("No phone number copied"); } catch (e) { toast("Allow paste, or long-press the box and choose Paste"); } });
@@ -445,6 +482,71 @@ function nextDue(p, b) {
   for (const x of st) { acc += x.amount; if (acc > covered + 0.005) return r2(Math.min(b, acc - covered)); }
   return b;
 }
+
+/* ---------- payment messages (WhatsApp) ---------- */
+// Next unpaid instalment of a plan, or null.
+function nextInst(p) {
+  const st = planStatus(p), b = balance(p); if (!st || !(b > 0)) return null;
+  let covered = paid(p), acc = 0;
+  for (const x of st) { acc += x.amount; if (acc > covered + 0.005) return { amount: r2(Math.min(b, acc - covered)), due: x.due }; }
+  return null;
+}
+function payWhat(p, l) {
+  const ar = l === "ar";
+  return lineName(Object.assign({}, p, { renewDetails: null }), l) + (isMotor(p) && p.plate ? (ar ? " للسيارة رقم " : " for plate ") + p.plate : "");
+}
+// The client's most recent payment: one entry, or every entry of one client payment split over policies.
+function lastPayment(ps) {
+  let best = null;
+  for (const p of ps) for (const x of p.payments || []) { const t = String(x.date || "") + "|" + String(x.id || ""); if (!best || t > best.t) best = { t, x }; }
+  if (!best) return null;
+  const x = best.x, parts = x.batch ? ps.flatMap(p => (p.payments || []).filter(y => y.batch === x.batch)) : [x];
+  return { amount: r2(parts.reduce((a, y) => a + num(y.amount), 0)), date: x.date };
+}
+function payMsg(kind, ps, l) {
+  const ar = l === "ar", one = ps.length === 1, p0 = ps[0], name = p0.firstName || fullName(p0);
+  const open = ps.filter(p => balance(p) > 0), bal = r2(open.reduce((a, p) => a + balance(p), 0));
+  const list = open.map(p => "• " + payWhat(p, l) + ": $" + r2(balance(p))).join("\n") + "\n";
+  const head = ar ? "مرحبا " + name + " 👋\nمعك شربل من BF Insurance 🛡️\n\n" : "Hello " + name + " 👋\nIt's Charbel from BF Insurance 🛡️\n\n";
+  const how = ar ? "💳 الدفع كاش، Whish أو OMT\n" : "💳 Pay by cash, Whish or OMT\n";
+  const foot = ar ? "\nشكرًا 🙏\n\nBF Insurance · تأمينك عَ أصولو" : "\nThank you 🙏\n\nBF Insurance · Protection, done properly";
+  const ni = one ? nextInst(p0) : null, tot = open.length > 1 ? (ar ? "💵 المجموع: $" : "💵 Total: $") + bal + "\n" : "";
+  const nextLine = ni ? (ar ? "📅 الدفعة الجاية: $" + ni.amount + " بتاريخ " + fmtDate(ni.due) + "\n" : "📅 Next payment: $" + ni.amount + " on " + fmtDate(ni.due) + "\n") : "";
+  let body = "";
+  if (kind === "remind") {
+    if (one) {
+      const amt = ni ? ni.amount : bal, due = ni ? ni.due : "";
+      body = ar ? "تذكير بالدفعة عن " + payWhat(p0, l) + ": $" + amt + (due ? " بتاريخ " + fmtDate(due) : "") + ".\n" + (bal > amt ? "💵 المبلغ الباقي كلّو: $" + bal + "\n" : "") + "\n" + how
+        : "A reminder about the payment for your " + payWhat(p0, l) + ": $" + amt + (due ? " due on " + fmtDate(due) : "") + ".\n" + (bal > amt ? "💵 Total balance left: $" + bal + "\n" : "") + "\n" + how;
+    } else body = (ar ? "تذكير بالمبالغ الباقية:\n" : "A reminder about the amounts left to pay:\n") + list + tot + "\n" + how;
+  } else if (kind === "balance") {
+    const pd = r2(ps.reduce((a, p) => a + (p.supplier === "whish" ? 0 : paid(p)), 0));
+    body = (ar ? "حبّينا نخبرك بالمبلغ الباقي:\n" : "Here is your balance left:\n") + list + tot +
+      (pd > 0 ? (ar ? "✅ المدفوع لهلّق: $" : "✅ Paid so far: $") + pd + "\n" : "") + nextLine + "\n" + how;
+  } else {
+    const lp = lastPayment(ps) || { amount: 0, date: todayStr() };
+    body = (ar ? "وصلتنا دفعتك $" + lp.amount + " بتاريخ " + fmtDate(lp.date) + (one ? " عن " + payWhat(p0, l) : "") + " ✅\n"
+      : "We received your payment of $" + lp.amount + " on " + fmtDate(lp.date) + (one ? " for your " + payWhat(p0, l) : "") + " ✅\n") +
+      (bal > 0 ? (one ? (ar ? "💵 الباقي: $" : "💵 Balance left: $") + bal + "\n" : (ar ? "💵 الباقي:\n" : "💵 Balance left:\n") + list + tot) + nextLine
+        : (ar ? "🎉 هيك صار المبلغ كلّو مدفوع، ما في شي باقي.\n" : "🎉 Your balance is now fully paid. Nothing left to pay.\n"));
+  }
+  return head + body + foot;
+}
+// WhatsApp buttons for payment messages, for one policy or a whole client.
+function payMsgBox(ps) {
+  ps = ps.filter(p => p.supplier !== "whish");
+  if (!ps.length) return "";
+  const bal = ps.reduce((a, p) => a + balance(p), 0), hasPay = ps.some(p => (p.payments || []).length);
+  if (!(bal > 0) && !hasPay) return "";
+  const phone = (ps.find(p => p.phone) || {}).phone || "", wn = waNumber(phone);
+  if (!wn) return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3><p class="sub">Add the client\'s phone number to send payment messages.</p></div>';
+  const a = (kind, label) => '<a class="btn wa small" target="_blank" rel="noopener" href="' + esc("https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(payMsg(kind, ps, payLang))) + '">' + label + '</a>';
+  return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3>' +
+    '<div class="acts"><span class="seg" role="group" aria-label="Message language"><button type="button" data-paylang="ar" aria-pressed="' + (payLang === "ar") + '">عربي</button><button type="button" data-paylang="en" aria-pressed="' + (payLang === "en") + '">English</button></span>' +
+    (bal > 0 ? a("remind", "Payment reminder") : "") + (hasPay ? a("paid", bal > 0 ? "Payment received" : "Paid in full") : "") + (bal > 0 ? a("balance", "Balance left") : "") + '</div>' +
+    '<p class="sub">' + (bal > 0 ? 'Balance left ' + money(bal) + '. ' : 'Fully paid. ') + '"' + (bal > 0 ? 'Payment received' : 'Paid in full') + '" uses the last payment you added.</p></div>';
+}
+function bindPayLang(redraw) { $("#modal").querySelectorAll("[data-paylang]").forEach(b => b.addEventListener("click", () => { payLang = b.dataset.paylang; redraw(); })); }
 function planHTML(p) {
   const st = planStatus(p); if (!st) return "";
   const today = todayStr();
@@ -453,7 +555,7 @@ function planHTML(p) {
 }
 
 /* ---------- detail ---------- */
-function openDetail(id) { confirmDel = false; drawDetail(id); }
+function openDetail(id) { confirmDel = false; currentClient = null; drawDetail(id); }
 function drawDetail(id) {
   const p = byId(id); if (!p) { closeModal(); return; }
   currentDetail = id;
@@ -480,7 +582,7 @@ function drawDetail(id) {
     '<form class="payform" id="payForm"><label>Amount ($)<input id="payAmt" type="number" min="0" step="0.01" inputmode="decimal" value="' + (b > 0 ? nextDue(p, b) : "") + '" required></label>' +
     '<label>Date<input id="payDate" type="date" value="' + todayStr() + '" required></label>' +
     '<label>Method<select id="payMethod">' + METHODS.map(m => '<option>' + m + '</option>').join("") + '</select></label>' +
-    '<button class="btn primary" type="submit">Add payment</button></form>' +
+    '<button class="btn primary" type="submit">Add payment</button></form>' + payMsgBox([p]) +
     '<div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button>' + (p.closed ? '<button class="btn" type="button" id="reopenBtn">Undo not renewing</button>' : !p.renewedTo && p.line !== "travel" ? '<button class="btn" type="button" id="notRenBtn">Not renewing</button>' : '') + '<button class="btn" type="button" id="renewBtn">Renew</button><button class="btn primary" type="button" id="editBtn">Edit</button></div>' +
     (confirmDel ? '<div class="confirm">Delete this policy and its payments for good?<button class="btn small danger" type="button" id="delYes">Yes, delete</button><button class="btn small" type="button" id="delNo">Keep it</button></div>' : '') +
     '</div></div>';
@@ -497,6 +599,7 @@ function drawDetail(id) {
   }));
   $("#modal").querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => { if (a.dataset.stage) markSent(a.dataset.wa, a.dataset.stage, true); }));
   bindRp($("#modal"));
+  bindPayLang(() => drawDetail(p.id));
   $("#editBtn").addEventListener("click", () => openForm(p));
   if ($("#notRenBtn")) $("#notRenBtn").addEventListener("click", () => setClosed(p.id, true));
   if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
@@ -691,7 +794,7 @@ function bindModalClose() {
   $("#modal").querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeModal));
   const ov = $("#ov"); ov.addEventListener("click", e => { if (e.target === ov) closeModal(); });
 }
-function closeModal() { currentDetail = null; $("#modal").innerHTML = ""; }
+function closeModal() { currentDetail = null; currentClient = null; $("#modal").innerHTML = ""; }
 document.addEventListener("keydown", e => { if (e.key === "Escape" && $("#ov")) closeModal(); });
 
 /* ---------- export ---------- */
@@ -730,5 +833,5 @@ store.init(u => {
   const timer = setTimeout(() => { if (!loaded.policies) { loadError = "Your data is taking long to load. Check your internet connection."; render(); } }, 10000);
   const onErr = err => { clearTimeout(timer); loadError = err && err.code === "permission-denied" ? "This account is not allowed to see the data. Ask Claude to add it." : "Could not load your data. Reopen the app to try again."; loaded.policies = false; render(); };
   store.watch("subbrokers", rows => { subs = rows; loaded.subbrokers = true; render(); if (currentDetail) drawDetail(currentDetail); }, onErr);
-  store.watch("policies", rows => { clearTimeout(timer); policies = rows; loaded.policies = true; loadError = ""; render(); if (currentDetail) drawDetail(currentDetail); }, onErr);
+  store.watch("policies", rows => { clearTimeout(timer); policies = rows; loaded.policies = true; loadError = ""; render(); if (currentDetail) drawDetail(currentDetail); else if (currentClient) openClient(currentClient, true); }, onErr);
 }).catch(() => { $("#app").innerHTML = '<p class="wrap" style="padding-top:40px">Could not start. Check your internet connection and reload.</p>'; });
