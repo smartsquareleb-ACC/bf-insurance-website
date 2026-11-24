@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=13";
-import * as store from "./store.js?v=13";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=14";
+import * as store from "./store.js?v=14";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -57,6 +57,9 @@ let policies = [], subs = [], loaded = { policies: false, subbrokers: false }, l
 let tab = ["overview", "reminders", "policies", "clients", "subbrokers"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
 let cq = "", monthOffset = 0, q = "", fLine = "", fStatus = "", currentDetail = null, currentClient = null, confirmDel = false, payLang = "ar";
 let lang = {}; try { lang = JSON.parse(localStorage.getItem("bf_lang") || "{}") || {}; } catch (e) {}
+// Search: every word typed must appear somewhere, in any order ("joseph al kareh" finds "Joseph Samir Al Kareh").
+const fold = t => String(t || "").toLowerCase().replace(/[-_/.]/g, " ");
+const matches = (fields, needle) => { const hay = fields.map(fold).join(" | "), hayNo = hay.replace(/\s+/g, ""); return fold(needle).split(/\s+/).filter(Boolean).every(w => hay.includes(w) || hayNo.includes(w)); };
 const subOf = id => subs.find(s => s.id === id);
 const byId = id => policies.find(p => p.id === id);
 
@@ -305,7 +308,7 @@ function policyList() {
     }
     if (!needle) return true;
     const sub = p.viaSub ? subOf(p.subId) : null;
-    return [fullName(p), p.phone, p.policyNo, p.plate, sub && sub.name].some(x => String(x || "").toLowerCase().includes(needle));
+    return matches([fullName(p), p.phone, p.policyNo, p.plate, sub && sub.name], needle);
   }).sort((a, b) => (a.expiry || "").localeCompare(b.expiry || ""));
   const opt = (v, t, cur) => '<option value="' + v + '"' + (cur === v ? " selected" : "") + '>' + esc(t) + '</option>';
   let h = '<div class="headrow"><div><h2>Policies</h2><p class="sub">' + list.length + ' of ' + policies.length + ' · sorted by expiry date</p></div><button class="btn small" type="button" id="exportBtn">Export to Excel</button></div>';
@@ -363,7 +366,7 @@ function clientGroups() {
 }
 function clientsView() {
   const needle = cq.trim().toLowerCase(), all = clientGroups();
-  const list = all.filter(c => !needle || [c.name, c.phone].concat(c.ps.map(p => p.plate), c.ps.map(p => p.policyNo)).some(x => String(x || "").toLowerCase().includes(needle)));
+  const list = all.filter(c => !needle || matches([c.name, c.phone].concat(c.ps.map(p => p.plate), c.ps.map(p => p.policyNo)), needle));
   const noPhone = all.filter(c => !c.phone).length;
   let h = '<div class="headrow"><div><h2>Clients</h2><p class="sub">' + list.length + ' of ' + all.length + ' clients' + (noPhone ? ' · ' + noPhone + ' without a phone number' : '') + '</p></div></div>';
   h += '<div class="tools"><input id="cq" type="search" placeholder="Search name, phone, plate, policy no." value="' + esc(cq) + '"></div>';
