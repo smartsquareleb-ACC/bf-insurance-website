@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=10";
-import * as store from "./store.js?v=10";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=11";
+import * as store from "./store.js?v=11";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -83,7 +83,9 @@ function reminderStage(p) {
 const target = p => { if (p.viaSub) { const s = subOf(p.subId); return { name: s ? s.name : "sub-broker", phone: s ? s.phone : "", sub: true }; } return { name: p.firstName || fullName(p), phone: p.phone, sub: false }; };
 
 // Renewal price shown in the reminder: today's portal price when the line has a fixed price, else last price.
+// You can type your own renewal price on a policy (e.g. a bigger bundle); it wins over the list price.
 function renewPrice(p) {
+  if (num(p.renewPrice) > 0) return num(p.renewPrice);
   const sg = suggest(p.line, p.details || {});
   const v = sg && sg.price ? sg.price : num(p.price);
   return v > 0 ? v : 0;
@@ -228,7 +230,20 @@ function remHTML(p) {
     '<button class="btn small" type="button" data-copy="' + esc(p.id) + '">Copy</button>' +
     '<button class="btn small" type="button" data-sent="' + esc(p.id) + '" data-stage="' + st + '">Mark sent</button>' +
     '<button class="btn small" type="button" data-close-pol="' + esc(p.id) + '">Not renewing</button></div>' +
+    rpRow(p) +
     '<div class="msg" dir="' + (l === "ar" ? "rtl" : "ltr") + '">' + esc(msg) + '</div></div>';
+}
+function rpRow(p) {
+  const own = num(p.renewPrice) > 0;
+  return '<label class="rprow">Renewal price ($)<input type="number" min="0" step="0.01" inputmode="decimal" data-rp="' + esc(p.id) + '" value="' + renewPrice(p) + '"></label>' +
+    '<small class="rpnote">' + (own ? 'Your price. <button type="button" class="linkbtn" data-rpreset="' + esc(p.id) + '">Use list price</button>' : 'List price. Type a new price to change it in the message.') + '</small>';
+}
+async function saveRenewPrice(id, v) {
+  try { await store.update("policies", id, { renewPrice: v > 0 ? v : null }); toast(v > 0 ? "Renewal price saved" : "Back to list price"); } catch (e) { toast("Could not save. Try again."); }
+}
+function bindRp(root) {
+  root.querySelectorAll("[data-rp]").forEach(i => i.addEventListener("change", () => { const p = byId(i.dataset.rp); const v = num(i.value); if (p && v !== renewPrice(p)) saveRenewPrice(p.id, v); }));
+  root.querySelectorAll("[data-rpreset]").forEach(b => b.addEventListener("click", () => saveRenewPrice(b.dataset.rpreset, 0)));
 }
 // Reminder buttons on the policy screen: shown from 30 days before expiry, or any time on request.
 function remBox(p) {
@@ -239,7 +254,7 @@ function remBox(p) {
   const link = l => "https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(message(p, l));
   return '<div class="rembox"><h3 style="margin-top:4px">Renewal reminder</h3>' +
     '<p class="sub">Opens WhatsApp with the message ready' + (t.sub ? ' for ' + esc(t.name) : '') + '. Check it and press send.</p>' +
-    '<div class="acts"><a class="btn wa small" href="' + esc(link("ar")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp عربي</a>' +
+    rpRow(p) + '<div class="acts"><a class="btn wa small" href="' + esc(link("ar")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp عربي</a>' +
     '<a class="btn wa small" href="' + esc(link("en")) + '" target="_blank" rel="noopener" data-wa="' + esc(p.id) + '" data-stage="' + st + '">WhatsApp English</a></div></div>';
 }
 async function setClosed(id, on) {
@@ -388,6 +403,7 @@ function bindView() {
   v.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", () => { const p = byId(b.dataset.copy); navigator.clipboard.writeText(message(p, lang[p.id] || "ar")).then(() => toast("Message copied"), () => toast("Copy blocked. Select the message text instead.")); }));
   v.querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => markSent(a.dataset.wa, a.dataset.stage, true)));
   v.querySelectorAll("[data-sent]").forEach(b => b.addEventListener("click", () => markSent(b.dataset.sent, b.dataset.stage, false)));
+  bindRp(v);
   v.querySelectorAll("[data-close-pol]").forEach(b => b.addEventListener("click", () => setClosed(b.dataset.closePol, true)));
   const qi = $("#q"); if (qi) qi.addEventListener("input", () => { q = qi.value; searchSoon(); });
   v.querySelectorAll("[data-client]").forEach(el => { el.addEventListener("click", () => openClient(el.dataset.client)); el.addEventListener("keydown", e => { if (e.key === "Enter") openClient(el.dataset.client); }); });
@@ -459,6 +475,7 @@ function drawDetail(id) {
     try { await store.update("policies", p.id, { payments: list }); toast("Payment removed"); } catch (err) { toast("Could not remove it. Try again."); }
   }));
   $("#modal").querySelectorAll("[data-wa]").forEach(a => a.addEventListener("click", () => { if (a.dataset.stage) markSent(a.dataset.wa, a.dataset.stage, true); }));
+  bindRp($("#modal"));
   $("#editBtn").addEventListener("click", () => openForm(p));
   if ($("#notRenBtn")) $("#notRenBtn").addEventListener("click", () => setClosed(p.id, true));
   if ($("#reopenBtn")) $("#reopenBtn").addEventListener("click", () => setClosed(p.id, false));
