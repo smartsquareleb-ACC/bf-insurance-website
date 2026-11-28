@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=16";
-import * as store from "./store.js?v=16";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=17";
+import * as store from "./store.js?v=17";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -774,7 +774,7 @@ function openForm(p) {
     $("#optFields").innerHTML = L.fields.map(f => fieldHTML(f, details)).join("");
     details = readDetails(L);
     $("#plateWrap").hidden = !L.motor;
-    $("#optFields").querySelectorAll("select,input").forEach(el => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => { details = readDetails(L); refresh(); }));
+    $("#optFields").querySelectorAll("select,input").forEach(el => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => { details = readDetails(L); priceTouched = false; refresh(); }));  // a new option = the portal price again
     refresh();
   }
   function refresh() {
