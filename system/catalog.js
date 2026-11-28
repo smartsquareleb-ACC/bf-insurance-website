@@ -143,12 +143,14 @@ export function suggest(line, d) {
     }
     if (v.startsWith("Motorcycle")) {
       const big = v.includes("and above"), t = big ? { bi: 35, md: 30, both: 65 } : { bi: 25, md: 25, both: 50 };
-      return { price: c === "Elzeme only" ? t.bi : c === "Dod l gheir only" ? t.md : t.both, comm: null };
+      const pr = c === "Elzeme only" ? t.bi : c === "Dod l gheir only" ? t.md : t.both;
+      return { price: pr, comm: pr * 0.3 };
     }
   }
   if (line === "worker") {
     const i = Math.max(0, ["In hospital", "In hospital + telemedicine", "In hospital + telemedicine + outpatient", "Premium"].indexOf(d.plan || "In hospital"));
-    return { price: (d.gender === "Male" ? [85, 93, 120, 180] : [65, 70, 100, 150])[i], comm: null };
+    const pr = (d.gender === "Male" ? [85, 93, 120, 180] : [65, 70, 100, 150])[i];
+    return { price: pr, comm: Math.round(pr * 37) / 100 };
   }
   return null;
 }
@@ -166,4 +168,20 @@ export function summary(p) {
     else bits.push(v);
   }
   return bits.join(" · ");
+}
+
+// BF commission rate per line (Sécurité: motor TPL schedule from 24/11/2026, all other lines the 2024 ISA agreement).
+// Used to fill Cost = price minus commission when there is no fixed portal price. null = no standard rate.
+export function commRate(line, d) {
+  d = d || {};
+  switch (line) {
+    case "motor_tpl": case "motor_allrisk": case "motor_tl": case "accident":
+    case "home": case "fire_common": case "lm7": case "jewelry": case "fire_allied": return 0.30;
+    case "travel": return 0.40;
+    case "medical": return d.plan === "Essential Care" ? 0.10 : 0.18;
+    case "medical_sme": return 0.10;
+    case "worker": return 0.37;
+    case "workmen": case "public_liab": case "signboard": case "malpractice": return 0.27;
+    default: return null;
+  }
 }

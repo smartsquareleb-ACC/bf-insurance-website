@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=17";
-import * as store from "./store.js?v=17";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary, commRate } from "./catalog.js?v=18";
+import * as store from "./store.js?v=18";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -293,6 +293,18 @@ async function markSent(id, stage, viaWa) {
 }
 
 /* ---------- policies list ---------- */
+// Sécurité policies saved without a cost: fill it from the standard commission.
+function stdCost(p) {
+  const pr = num(p.price), sg = suggest(p.line, p.details || {});
+  const comm = sg && sg.comm != null && Math.abs(sg.price - pr) < 0.01 ? sg.comm : (commRate(p.line, p.details) != null ? pr * commRate(p.line, p.details) : null);
+  return comm == null ? null : r2(pr - comm);
+}
+const noCost = () => policies.filter(p => (p.supplier || "securite") === "securite" && num(p.price) > 0 && !(num(p.cost) > 0) && stdCost(p) != null);
+async function fillCosts() {
+  const list = noCost(); let n = 0;
+  for (const p of list) { try { await store.update("policies", p.id, { cost: stdCost(p) }); n++; } catch (e) {} }
+  toast(n + " cost" + (n === 1 ? "" : "s") + " filled");
+}
 function policyList() {
   const needle = q.trim().toLowerCase();
   const list = policies.filter(p => {
@@ -312,6 +324,8 @@ function policyList() {
   }).sort((a, b) => (a.expiry || "").localeCompare(b.expiry || ""));
   const opt = (v, t, cur) => '<option value="' + v + '"' + (cur === v ? " selected" : "") + '>' + esc(t) + '</option>';
   let h = '<div class="headrow"><div><h2>Policies</h2><p class="sub">' + list.length + ' of ' + policies.length + ' · sorted by expiry date</p></div><button class="btn small" type="button" id="exportBtn">Export to Excel</button></div>';
+  const nc = noCost();
+  if (nc.length) h += '<div class="rembox" style="margin-bottom:12px"><b>' + nc.length + ' Sécurité ' + (nc.length === 1 ? 'policy has' : 'policies have') + ' no cost</b><p class="sub" style="margin:4px 0 8px">Their profit shows the full price. Fill the cost from your standard commission (e.g. Dod l gheir $65 → cost $45.50).</p><button class="btn primary small" type="button" id="fillCosts">Fill ' + nc.length + ' cost' + (nc.length === 1 ? '' : 's') + '</button></div>';
   h += '<div class="tools"><input id="q" type="search" placeholder="Search name, phone, policy no., plate, sub-broker" value="' + esc(q) + '">' +
     '<select id="fLine"><option value="">All insurance types</option>' + LINES.map(l => opt(l.k, l.en, fLine)).join("") + '</select>' +
     '<select id="fStatus">' + opt("", "Any status", fStatus) + opt("active", "Active", fStatus) + opt("soon", "Expiring within 30 days", fStatus) + opt("expired", "Expired", fStatus) + opt("owes", "Still owes money", fStatus) + opt("sub", "Sub-broker policies", fStatus) + opt("whish", "Whish Money policies", fStatus) + '</select></div>';
@@ -472,6 +486,7 @@ function bindView() {
   const fl = $("#fLine"); if (fl) fl.addEventListener("change", () => { fLine = fl.value; render(); });
   const fs = $("#fStatus"); if (fs) fs.addEventListener("change", () => { fStatus = fs.value; render(); });
   const ex = $("#exportBtn"); if (ex) ex.addEventListener("click", exportCSV);
+  const fc = $("#fillCosts"); if (fc) fc.addEventListener("click", () => { fc.disabled = true; fc.textContent = "Filling…"; fillCosts(); });
   const as = $("#addSub"); if (as) as.addEventListener("click", () => openSubForm(null));
   const mp = $("#mPrev"); if (mp) mp.addEventListener("click", () => { monthOffset--; render(); });
   const mn = $("#mNext"); if (mn) mn.addEventListener("click", () => { if (monthOffset < 0) { monthOffset++; render(); } });
@@ -766,7 +781,7 @@ function openForm(p) {
 
   let details = Object.assign({}, d0.details || {});
   let priceTouched = isEdit || d0.price != null && d0.price !== "", expTouched = isEdit;
-  let paidTouched = false;
+  let paidTouched = false, costTouched = num(d0.cost) > 0;
   const lineEl = $("#f_line"), inc = $("#f_inc"), exp = $("#f_exp");
 
   function drawOptions() {
@@ -774,7 +789,7 @@ function openForm(p) {
     $("#optFields").innerHTML = L.fields.map(f => fieldHTML(f, details)).join("");
     details = readDetails(L);
     $("#plateWrap").hidden = !L.motor;
-    $("#optFields").querySelectorAll("select,input").forEach(el => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => { details = readDetails(L); priceTouched = false; refresh(); }));  // a new option = the portal price again
+    $("#optFields").querySelectorAll("select,input").forEach(el => el.addEventListener(el.type === "checkbox" || el.tagName === "SELECT" ? "change" : "input", () => { details = readDetails(L); priceTouched = false; costTouched = false; refresh(); }));  // a new option = the portal price again
     refresh();
   }
   function refresh() {
@@ -786,11 +801,17 @@ function openForm(p) {
     $("#subWrap").hidden = !via; $("#subCommWrap").hidden = !via;
     $("#phoneLabel").textContent = via ? "Client phone (optional, reminders go to the sub-broker)" : "Phone (WhatsApp)";
     // suggested price
-    const sg = suggest(L.k, details), hint = $("#sugHint");
-    if (sg && sup === "securite") {
-      if (!priceTouched) { $("#f_price").value = sg.price; if (sg.comm != null) $("#f_cost").value = +(sg.price - sg.comm).toFixed(2); }
-      hint.hidden = false; hint.textContent = "Portal price " + money(sg.price) + (sg.comm != null ? ", your commission " + money(sg.comm) : "") + ".";
-    } else hint.hidden = true;
+    // Sécurité policies: Cost = price minus BF commission (fixed portal commission, else the line's standard rate).
+    const sg = sup === "securite" ? suggest(L.k, details) : null, rate = sup === "securite" ? commRate(L.k, details) : null, hint = $("#sugHint");
+    if (sg && !priceTouched) $("#f_price").value = sg.price;
+    const pr = num($("#f_price").value);
+    if (!costTouched && pr > 0 && (rate != null || (sg && sg.comm != null))) {
+      const comm = sg && !priceTouched && sg.comm != null ? sg.comm : pr * rate;
+      $("#f_cost").value = +(pr - comm).toFixed(2);
+    }
+    if (sg) { hint.hidden = false; hint.textContent = "Portal price " + money(sg.price) + (sg.comm != null ? ", your commission " + money(sg.comm) : "") + "."; }
+    else if (rate != null && pr > 0) { hint.hidden = false; hint.textContent = "Cost filled at your " + Math.round(rate * 100) + "% commission (" + money(r2(pr * rate)) + "). Change it if Sécurité's figure differs."; }
+    else hint.hidden = true;
     // travel expiry
     if (L.k === "travel" && !expTouched && inc.value) { const n = TRAVEL_DAYS[details.duration || "Up to 7 days"]; if (n) exp.value = addDays(inc.value, n - 1); }
     else if (!expTouched && inc.value) exp.value = addYear(inc.value);
@@ -808,7 +829,7 @@ function openForm(p) {
       const pn = $("#f_paid"); if (pn && !paidTouched) pn.value = pl.schedule[0] ? pl.schedule[0].amount : "";
     } else { const pn = $("#f_paid"); if (pn && !paidTouched) pn.value = ""; }
   }
-  lineEl.addEventListener("change", () => { details = {}; priceTouched = false; drawOptions(); });
+  lineEl.addEventListener("change", () => { details = {}; priceTouched = false; costTouched = false; drawOptions(); });
   ["#f_sup", "#f_viaSub"].forEach(s => $(s).addEventListener("change", refresh));
   $("#f_sub").addEventListener("change", e => {
     if (e.target.value !== "__new") return;
@@ -830,7 +851,8 @@ function openForm(p) {
     try { const tel = cleanPhone(await navigator.clipboard.readText()); if (tel) $("#f_phone").value = tel; else toast("No phone number copied"); }
     catch (e) { toast("Allow paste, or long-press the box and choose Paste"); }
   });
-  ["#f_price", "#f_cost"].forEach(s => $(s).addEventListener("input", () => { priceTouched = true; refresh(); }));
+  $("#f_price").addEventListener("input", () => { priceTouched = true; refresh(); });
+  $("#f_cost").addEventListener("input", () => { costTouched = true; refresh(); });
   $("#f_subComm").addEventListener("input", refresh);
   ["#f_disc", "#f_firstPct", "#f_n"].forEach(s => $(s).addEventListener("input", refresh));
   $("#f_payMode").addEventListener("change", refresh);
