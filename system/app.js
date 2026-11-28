@@ -1,5 +1,5 @@
-import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=15";
-import * as store from "./store.js?v=15";
+import { LINES, lineOf, SUPPLIERS, TRAVEL_DAYS, suggest, summary } from "./catalog.js?v=16";
+import * as store from "./store.js?v=16";
 
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
@@ -516,7 +516,22 @@ function payMsg(kind, ps, l) {
   const ni = one ? nextInst(p0) : null, tot = open.length > 1 ? (ar ? "💵 المجموع: $" : "💵 Total: $") + bal + "\n" : "";
   const nextLine = ni ? (ar ? "📅 الدفعة الجاية: $" + ni.amount + " بتاريخ " + fmtDate(ni.due) + "\n" : "📅 Next payment: $" + ni.amount + " on " + fmtDate(ni.due) + "\n") : "";
   let body = "";
-  if (kind === "remind") {
+  if (kind === "plan") {
+    const ord = ["الأولى", "التانية", "التالتة", "الرابعة", "الخامسة", "السادسة", "السابعة", "التامنة", "التاسعة", "العاشرة", "الحادية عشر", "التانية عشر"];
+    body = ps.filter(p => planStatus(p)).map(p => {
+      let left = paid(p);
+      const rows = p.plan.schedule.map((x, i) => {
+        const cov = r2(Math.min(x.amount, Math.max(0, left))); left -= x.amount;
+        const lab = ar ? "الدفعة " + (ord[i] || (i + 1)) : (i === 0 ? "First payment" : "Payment " + (i + 1));
+        const st = cov + 0.005 >= x.amount ? (ar ? " ✅ مدفوعة" : " ✅ paid") : cov > 0 ? (ar ? " (مدفوع منها $" + cov + "، باقي $" + r2(x.amount - cov) + ")" : " ($" + cov + " paid, $" + r2(x.amount - cov) + " left)") : "";
+        return "• " + lab + (ar ? ": $" + x.amount + " بتاريخ " + fmtDate(x.due) : ": $" + x.amount + " on " + fmtDate(x.due)) + st;
+      }).join("\n");
+      const T = r2(total(p)), P = r2(Math.min(paid(p), T)), B = r2(balance(p)), D = r2(num(p.discount));
+      const tl = D > 0 ? (ar ? "💵 السعر: $" + r2(num(p.price)) + "\n🎁 الحسم: $" + D + "\n💵 المجموع بعد الحسم: $" + T : "💵 Price: $" + r2(num(p.price)) + "\n🎁 Discount: $" + D + "\n💵 Total after discount: $" + T) : (ar ? "💵 المجموع: $" + T : "💵 Total: $" + T);
+      return (ar ? "هيدا تفصيل الدفعات عن " + payWhat(p, l) + ":\n\n" : "Here is the payment plan for your " + payWhat(p, l) + ":\n\n") + tl + "\n\n" + rows + "\n\n" +
+        (ar ? "✅ المدفوع: $" + P + "\n" + (B > 0 ? "💵 الباقي: $" + B : "🎉 المبلغ كلّو مدفوع") : "✅ Paid: $" + P + "\n" + (B > 0 ? "💵 Balance left: $" + B : "🎉 Fully paid")) + "\n";
+    }).join("\n") + (bal > 0 ? "\n" + how : "");
+  } else if (kind === "remind") {
     if (one) {
       const amt = ni ? ni.amount : bal, due = ni ? ni.due : "";
       body = ar ? "تذكير بالدفعة عن " + payWhat(p0, l) + ": $" + amt + (due ? " بتاريخ " + fmtDate(due) : "") + ".\n" + (bal > amt ? "💵 المبلغ الباقي كلّو: $" + bal + "\n" : "") + "\n" + how
@@ -546,7 +561,7 @@ function payMsgBox(ps) {
   const a = (kind, label) => '<a class="btn wa small" target="_blank" rel="noopener" href="' + esc("https://wa.me/" + encodeURIComponent(wn) + "?text=" + encodeURIComponent(payMsg(kind, ps, payLang))) + '">' + label + '</a>';
   return '<div class="rembox"><h3 style="margin-top:4px">Payment messages</h3>' +
     '<div class="acts"><span class="seg" role="group" aria-label="Message language"><button type="button" data-paylang="ar" aria-pressed="' + (payLang === "ar") + '">عربي</button><button type="button" data-paylang="en" aria-pressed="' + (payLang === "en") + '">English</button></span>' +
-    (bal > 0 ? a("remind", "Payment reminder") : "") + (hasPay ? a("paid", bal > 0 ? "Payment received" : "Paid in full") : "") + (bal > 0 ? a("balance", "Balance left") : "") +
+    (ps.some(p => planStatus(p)) ? a("plan", "Payment plan") : "") + (bal > 0 ? a("remind", "Payment reminder") : "") + (hasPay ? a("paid", bal > 0 ? "Payment received" : "Paid in full") : "") + (bal > 0 ? a("balance", "Balance left") : "") +
     '<button class="btn small" type="button" id="stmtBtn">Statement PDF</button></div>' +
     '<p class="sub">' + (bal > 0 ? 'Balance left ' + money(bal) + '. ' : 'Fully paid. ') + '"' + (bal > 0 ? 'Payment received' : 'Paid in full') + '" uses the last payment you added.</p></div>';
 }
